@@ -591,14 +591,38 @@
 
       updateMobileMapButtonText();
       
-      const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
+      const currentFilter = getCurrentFilter();
       renderItinerary(currentFilter);
 
       if (selectedDayId) {
-        selectDay(selectedDayId);
+        selectDay(selectedDayId, { scroll: false });
       } else {
         renderAllRoutesOnMap();
       }
+    }
+
+    function getCurrentFilter() {
+      return document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
+    }
+
+    function setActiveTab(leg) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-red-600', 'text-white');
+        btn.classList.add('bg-slate-800', 'text-slate-300');
+      });
+      const activeBtn = document.getElementById(`tab-${leg}`);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-red-600', 'text-white');
+        activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+      }
+    }
+
+    function scrollToDayCard(dayId) {
+      const container = document.getElementById('itineraryContainer');
+      const card = document.getElementById(`day-card-${dayId}`);
+      if (!container || !card) return;
+      const offset = card.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollTo({ top: container.scrollTop + offset - 8, behavior: 'smooth' });
     }
 
     function renderItinerary(filter = 'all') {
@@ -670,31 +694,36 @@
     }
 
     function filterLeg(leg) {
-      document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('bg-red-600', 'text-white');
-        btn.classList.add('bg-slate-800', 'text-slate-300');
-      });
-      const activeBtn = document.getElementById(`tab-${leg}`);
-      if (activeBtn) {
-        activeBtn.classList.add('bg-red-600', 'text-white');
-        activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
-      }
+      setActiveTab(leg);
 
       if (leg === 'all') {
         selectedDayId = null;
+        renderItinerary('all');
         renderAllRoutesOnMap();
       } else {
         const firstDay = daysData.find(d => d.leg === leg);
-        if (firstDay) selectDay(firstDay.id);
+        if (firstDay) {
+          selectDay(firstDay.id, { scroll: false });
+        } else {
+          renderItinerary(leg);
+        }
       }
-
-      renderItinerary(leg);
     }
 
-    async function selectDay(dayId) {
-      selectedDayId = dayId;
+    async function selectDay(dayId, opts = {}) {
       const day = daysData.find(d => d.id === dayId);
       if (!day) return;
+      selectedDayId = dayId;
+
+      // if the active leg tab hides this day, switch to the tab that shows it
+      let filter = getCurrentFilter();
+      if (filter !== 'all' && filter !== day.leg) {
+        filter = day.leg;
+        setActiveTab(filter);
+      }
+
+      renderItinerary(filter);
+      if (opts.scroll !== false) scrollToDayCard(dayId);
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Calculating Day ${day.id}...` : `正在计算第 ${day.id} 天路线...`;
@@ -749,9 +778,6 @@
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = `Day ${day.id}: ${day.title[currentLang]}`;
       document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • OSRM Road Route` : `${day.stops.length} 个行程点 • 实际公路路线`;
-
-      const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
-      renderItinerary(currentFilter);
     }
 
     async function renderAllRoutesOnMap() {
