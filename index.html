@@ -642,22 +642,17 @@
       const willOpen = body.classList.contains('hidden');
       body.classList.toggle('hidden', !willOpen);
       chev.classList.toggle('rotate-180', willOpen);
-      try { localStorage.setItem('kitOpen', willOpen ? '1' : '0'); } catch (e) {}
     }
 
     function restoreKit() {
-      try { localStorage.removeItem('kitDismissed'); } catch (e) {}
-      let open = '0';
-      try { open = localStorage.getItem('kitOpen') || '0'; } catch (e) {}
+      try {
+        localStorage.removeItem('kitDismissed');
+        localStorage.removeItem('kitOpen');
+      } catch (e) {}
       const body = document.getElementById('kitBody');
       const chev = document.getElementById('kitChevron');
-      if (open === '1') {
-        body.classList.remove('hidden');
-        chev.classList.add('rotate-180');
-      } else {
-        body.classList.add('hidden');
-        chev.classList.remove('rotate-180');
-      }
+      body.classList.add('hidden');
+      chev.classList.remove('rotate-180');
       applyKitText();
     }
 
