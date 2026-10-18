@@ -144,12 +144,6 @@
         <span id="locateBtnText">Locate Me</span>
       </button>
 
-      <!-- Weather / packing notes button (hidden only if dismissed) -->
-      <button id="kitBtn" onclick="openKit()" title="Packing & weather notes"
-        class="hidden px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs rounded-xl transition flex-shrink-0">
-        <i class="fa-solid fa-snowflake"></i>
-      </button>
-
       <!-- Language Switcher -->
       <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
         <button id="lang-en-btn" onclick="setLanguage('en')" class="px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow">EN</button>
@@ -211,17 +205,14 @@
       </div>
 
       <!-- Packing & Weather Notes (dismissible) -->
-      <div id="kitBanner" class="hidden bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300">
-        <div class="flex items-center justify-between gap-2">
-          <button onclick="toggleKit()" class="flex items-center gap-1.5 text-left font-semibold text-amber-300 hover:text-amber-200 transition">
+      <div id="kitBanner" class="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300">
+        <button onclick="toggleKit()" class="w-full flex items-center justify-between gap-2 text-left">
+          <span class="flex items-center gap-1.5 font-semibold text-amber-300">
             <i class="fa-solid fa-snowflake text-amber-400"></i>
             <span id="kitTitle">Packing &amp; weather notes</span>
-            <i id="kitChevron" class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform"></i>
-          </button>
-          <button onclick="dismissKit()" title="Hide" class="text-slate-500 hover:text-slate-300 transition px-1">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
+          </span>
+          <i id="kitChevron" class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform"></i>
+        </button>
         <div id="kitBody" class="hidden mt-2 space-y-1.5 text-[11px] leading-relaxed">
           <p><span class="font-semibold text-amber-300">This winter is a strong El Niño.</span> <span id="kit-line1"></span></p>
           <p><span class="font-semibold text-amber-300">Warmer, but wider swings.</span> <span id="kit-line2"></span></p>
@@ -653,36 +644,27 @@
       try { localStorage.setItem('kitOpen', open ? '0' : '1'); } catch (e) {}
     }
 
-    function dismissKit() {
-      document.getElementById('kitBanner').classList.add('hidden');
-      document.getElementById('kitBtn').classList.add('hidden');
-      try { localStorage.setItem('kitDismissed', '1'); } catch (e) {}
-    }
-
-    function openKit() {
-      try { localStorage.removeItem('kitDismissed'); } catch (e) {}
-      const banner = document.getElementById('kitBanner');
+    function toggleKit() {
       const body = document.getElementById('kitBody');
       const chev = document.getElementById('kitChevron');
-      banner.classList.remove('hidden');
-      body.classList.remove('hidden');
-      chev.classList.add('rotate-180');
-      applyKitText();
-      try { localStorage.setItem('kitOpen', '1'); } catch (e) {}
-      document.getElementById('kitBtn').classList.add('hidden');
+      const willOpen = body.classList.contains('hidden');
+      body.classList.toggle('hidden', !willOpen);
+      chev.classList.toggle('rotate-180', willOpen);
+      try { localStorage.setItem('kitOpen', willOpen ? '1' : '0'); } catch (e) {}
     }
 
     function restoreKit() {
-      let dismissed = '0', open = '0';
-      try { dismissed = localStorage.getItem('kitDismissed') || '0'; open = localStorage.getItem('kitOpen') || '0'; } catch (e) {}
-      const banner = document.getElementById('kitBanner');
-      const btn = document.getElementById('kitBtn');
-      if (dismissed === '1') { banner.classList.add('hidden'); btn.classList.remove('hidden'); return; }
-      banner.classList.remove('hidden');
-      btn.classList.add('hidden');
+      try { localStorage.removeItem('kitDismissed'); } catch (e) {}
+      let open = '0';
+      try { open = localStorage.getItem('kitOpen') || '0'; } catch (e) {}
+      const body = document.getElementById('kitBody');
+      const chev = document.getElementById('kitChevron');
       if (open === '1') {
-        document.getElementById('kitBody').classList.remove('hidden');
-        document.getElementById('kitChevron').classList.add('rotate-180');
+        body.classList.remove('hidden');
+        chev.classList.add('rotate-180');
+      } else {
+        body.classList.add('hidden');
+        chev.classList.remove('rotate-180');
       }
       applyKitText();
     }
