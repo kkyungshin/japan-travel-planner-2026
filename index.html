@@ -204,7 +204,7 @@
         <span id="locationDistanceSummary" class="text-[11px] font-mono text-blue-300">Calculating distances...</span>
       </div>
 
-      <!-- Packing & Weather Notes (dismissible) -->
+      <!-- Packing & Weather Notes (collapsed accordion) -->
       <div id="kitBanner" class="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300">
         <button onclick="toggleKit()" class="w-full flex items-center justify-between gap-2 text-left">
           <span class="flex items-center gap-1.5 font-semibold text-amber-300">
@@ -634,14 +634,6 @@
         const el = document.getElementById('kit-' + k);
         if (el) el.innerText = t[k];
       });
-    }
-
-    function toggleKit() {
-      const body = document.getElementById('kitBody');
-      const chev = document.getElementById('kitChevron');
-      const open = body.classList.toggle('hidden');
-      chev.classList.toggle('rotate-180', !open);
-      try { localStorage.setItem('kitOpen', open ? '0' : '1'); } catch (e) {}
     }
 
     function toggleKit() {
