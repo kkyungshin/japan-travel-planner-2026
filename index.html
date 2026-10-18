@@ -144,6 +144,12 @@
         <span id="locateBtnText">Locate Me</span>
       </button>
 
+      <!-- Weather / packing notes button (hidden only if dismissed) -->
+      <button id="kitBtn" onclick="openKit()" title="Packing & weather notes"
+        class="hidden px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs rounded-xl transition flex-shrink-0">
+        <i class="fa-solid fa-snowflake"></i>
+      </button>
+
       <!-- Language Switcher -->
       <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
         <button id="lang-en-btn" onclick="setLanguage('en')" class="px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow">EN</button>
@@ -217,10 +223,11 @@
           </button>
         </div>
         <div id="kitBody" class="hidden mt-2 space-y-1.5 text-[11px] leading-relaxed">
-          <p><span class="font-semibold text-amber-300">Cold is trip-wide, not one afternoon.</span> <span id="kit-line1"></span></p>
-          <p><span class="font-semibold text-amber-300">Days 4–5 are the coldest.</span> <span id="kit-line2"></span></p>
-          <p><span class="font-semibold text-amber-300">Kansai is milder but humid.</span> <span id="kit-line3"></span></p>
-          <p><span class="font-semibold text-cyan-300">Rain or snow possible.</span> <span id="kit-line4"></span></p>
+          <p><span class="font-semibold text-amber-300">This winter is a strong El Niño.</span> <span id="kit-line1"></span></p>
+          <p><span class="font-semibold text-amber-300">Warmer, but wider swings.</span> <span id="kit-line2"></span></p>
+          <p><span class="font-semibold text-amber-300">Kansai looks wetter.</span> <span id="kit-line3"></span></p>
+          <p><span class="font-semibold text-sky-300">What to pack.</span> <span id="kit-line7"></span></p>
+          <p><span class="font-semibold text-sky-300">Still true locally.</span> <span id="kit-line4"></span></p>
           <p><span class="font-semibold text-cyan-300">One IC card covers all rail.</span> <span id="kit-line5"></span></p>
           <p><span class="font-semibold text-cyan-300">Fixed closing time.</span> <span id="kit-line6"></span></p>
         </div>
@@ -274,7 +281,7 @@
         date: 'Oct 23, 2026 (Fri) / 10月23日 (周五)',
         color: '#ef4444',
         title: { en: 'Sapporo Arrival & City Highlights', zh: '抵达成吉思汗・札幌市区观光' },
-        estCost: 'Tour Paid',
+        estCost: null,
         stops: [
           { name: { en: 'Arrive New Chitose Airport (CTS)', zh: '抵达新千岁机场 (CTS)' }, time: '1:00 PM', desc: { en: 'Airport Rapid to Sapporo. JR Hokkaido fare ¥1,230.', zh: '搭乘 JR 快速机场线前往札幌站。JR北海道运费 ¥1,230。' }, cost: '¥1,230', lat: 42.7752, lng: 141.6923 },
           { name: { en: 'Hotel Monterey Edelhof Sapporo', zh: '札幌蒙特利埃德尔霍夫酒店' }, time: '3:00 PM', desc: { en: 'Exit 22 or 23 from Sapporo Station. Check-in.', zh: '从札幌站 Exit 22/23 出站步行前往办理入住。' }, cost: '¥2,300', lat: 43.0637, lng: 141.3562 },
@@ -609,19 +616,21 @@
     const KIT_TEXT = {
       en: {
         title: 'Packing & weather notes',
-        line1: 'Late-October Sapporo averages 14°C high / 6°C low (JMA 1991–2020). The warmest part of the day is ~2–3 PM, so afternoon plans are fine — but days start near the daily low.',
-        line2: 'Lake Toya and Noboribetsu run 40–70 km inland and colder than Sapporo. Both tour days start ~7 AM outdoors, and Jozankei’s foot bath is outside.',
-        line3: 'Osaka and Kyoto average ~19–20°C by day. Warmer, but humid and wetter in autumn — layer lightly rather than bundling.',
-        line4: 'October averages 1 cm of snow in Sapporo, with sleet around 2 days per month. Bring an umbrella and a warm top layer; sunset is ~16:50.',
+        line1: 'JMA recorded its strongest El Niño on record in September (NINO.3 at +4.0°C, beating the 1997 peak), and NOAA puts >83% odds it peaks this winter. El Niño weakens the winter monsoon, so Japan skews milder: JMA has Hokkaido at 40% above-normal temps and Kansai at 60%.',
+        line2: 'A warm winter is not a warm trip. El Niño years swing further between spells — JMA notes cold outbreaks and Pacific-side snow are more likely precisely because the pattern is unstable. Treat the outlook as a lean, not a forecast.',
+        line3: 'The Pacific side is the wet side. JMA expects more rain and fewer clear days for Osaka and Kyoto this winter, so the Kansai leg (Days 7–10) is the one most likely to be wet, not snowy.',
+        line7: 'Net effect: pack lighter than a typical Hokkaido October. A windproof shell over a mid-layer, long trousers and a packable beanie is enough for most days — but keep one warm layer for the inland tour days and the 7 AM starts.',
+        line4: 'Days 4–5 remain the coldest exposure: Lake Toya and Noboribetsu sit 40–70 km inland, both tours start around 7 AM outdoors, and Jozankei’s foot bath is outside. Sunset is ~16:50.',
         line5: 'A single ICOCA taps through every leg, Hokkaido included. Tap in and out within one area — crossing two areas needs a paper ticket.',
         line6: 'Shiroi Koibito Park closes 17:00 (last entry 16:30). You arrive 15:45, so there’s no slack if Otaru runs late.'
       },
       zh: {
         title: '行李与天气备注',
-        line1: '札幌十月下旬平均最高 14°C、最低 6°C（日本气象厅 1991–2020）。一天中最暖时段为下午 2–3 点，下午行程无碍 —— 但早晨接近当日最低温。',
-        line2: '洞爷湖与登别位于内陆 40–70 公里，比札幌更冷。两天一日游均于早上 7 点左右在户外开始，定山溪足浴也在户外。',
-        line3: '大阪与京都日间平均约 19–20°C。更暖和但湿度高、雨更多 —— 建议分层轻便穿着，无需厚裹。',
-        line4: '札幌十月平均降雪 1 厘米，雨夹雪约每月 2 天。请带雨伞与保暖上层衣物；日落约 16:50。',
+        line1: '日本气象厅记录到有观测以来最强的厄尔尼诺（9月 NINO.3 达 +4.0°C，超过 1997 年峰值），美国 NOAA 认为今冬达到峰值的概率超过 83%。厄尔尼诺会削弱冬季季风，日本整体偏暖：气象厅预计北海道气温偏高的概率为 40%，关西为 60%。',
+        line2: '暖冬不等于暖行程。厄尔尼诺年份气温起伏更大 —— 气象厅指出，正因为环流不稳定，寒潮与太平洋侧降雪反而更容易发生。请将此视为概率倾向，而非确定性预报。',
+        line3: '太平洋侧是湿侧。气象厅预计今冬大阪与京都降雨更多、晴天更少，因此关西段（第 7–10 天）最可能遇到的是雨天而非雪天。',
+        line7: '总体而言：比典型北海道十月可少带一些。防风外套加中层保暖、长裤、可收纳毛帽足以应付大多数日子 —— 但仍请为内陆一日游与清晨出发保留一件保暖衣物。',
+        line4: '第 4–5 天仍是最冷时段：洞爷湖与登别位于内陆 40–70 公里，两天一日游均于早上 7 点左右在户外开始，定山溪足浴也在户外。日落约 16:50。',
         line5: '一张 ICOCA 即可通行所有线路，含北海道。进出站请在同一区域内刷卡 —— 跨区域需另购纸票。',
         line6: '白色恋人巧克力工厂公园 17:00 关闭（最晚入场 16:30）。你 15:45 抵达，若小樽行程延误则无余量。'
       }
@@ -630,7 +639,7 @@
     function applyKitText() {
       const t = KIT_TEXT[currentLang] || KIT_TEXT.en;
       document.getElementById('kitTitle').innerText = t.title;
-      ['line1', 'line2', 'line3', 'line4', 'line5', 'line6'].forEach((k, i) => {
+      ['line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].forEach(k => {
         const el = document.getElementById('kit-' + k);
         if (el) el.innerText = t[k];
       });
@@ -646,15 +655,31 @@
 
     function dismissKit() {
       document.getElementById('kitBanner').classList.add('hidden');
+      document.getElementById('kitBtn').classList.add('hidden');
       try { localStorage.setItem('kitDismissed', '1'); } catch (e) {}
+    }
+
+    function openKit() {
+      try { localStorage.removeItem('kitDismissed'); } catch (e) {}
+      const banner = document.getElementById('kitBanner');
+      const body = document.getElementById('kitBody');
+      const chev = document.getElementById('kitChevron');
+      banner.classList.remove('hidden');
+      body.classList.remove('hidden');
+      chev.classList.add('rotate-180');
+      applyKitText();
+      try { localStorage.setItem('kitOpen', '1'); } catch (e) {}
+      document.getElementById('kitBtn').classList.add('hidden');
     }
 
     function restoreKit() {
       let dismissed = '0', open = '0';
       try { dismissed = localStorage.getItem('kitDismissed') || '0'; open = localStorage.getItem('kitOpen') || '0'; } catch (e) {}
-      if (dismissed === '1') return;
       const banner = document.getElementById('kitBanner');
+      const btn = document.getElementById('kitBtn');
+      if (dismissed === '1') { banner.classList.add('hidden'); btn.classList.remove('hidden'); return; }
       banner.classList.remove('hidden');
+      btn.classList.add('hidden');
       if (open === '1') {
         document.getElementById('kitBody').classList.remove('hidden');
         document.getElementById('kitChevron').classList.add('rotate-180');
