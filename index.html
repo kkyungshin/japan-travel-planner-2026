@@ -636,6 +636,18 @@
       container.scrollTo({ top: container.scrollTop + offset - 8, behavior: 'smooth' });
     }
 
+    function spreadDuplicateCoords(stops) {
+      const seen = new Map();
+      return stops.map(s => {
+        const key = `${s.lat},${s.lng}`;
+        const n = seen.get(key) || 0;
+        if (n === 0) { seen.set(key, 1); return s; }
+        const step = 0.0007 * n;
+        seen.set(key, n + 1);
+        return { ...s, lat: s.lat + step, lng: s.lng - step * 0.6 };
+      });
+    }
+
     function renderItinerary(filter = 'all') {
       const container = document.getElementById('itineraryContainer');
       container.innerHTML = '';
@@ -741,8 +753,9 @@
 
       currentLayerGroup.clearLayers();
       const osrmCoords = day.stops.map(s => [s.lng, s.lat]);
+      const markerPoints = spreadDuplicateCoords(day.stops);
 
-      day.stops.forEach((stop, idx) => {
+      markerPoints.forEach((stop, idx) => {
         const marker = L.marker([stop.lat, stop.lng], {
           icon: createCustomMarker(idx + 1, day.color)
         }).addTo(currentLayerGroup);
