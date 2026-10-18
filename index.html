@@ -204,6 +204,28 @@
         <span id="locationDistanceSummary" class="text-[11px] font-mono text-blue-300">Calculating distances...</span>
       </div>
 
+      <!-- Packing & Weather Notes (dismissible) -->
+      <div id="kitBanner" class="hidden bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300">
+        <div class="flex items-center justify-between gap-2">
+          <button onclick="toggleKit()" class="flex items-center gap-1.5 text-left font-semibold text-amber-300 hover:text-amber-200 transition">
+            <i class="fa-solid fa-snowflake text-amber-400"></i>
+            <span id="kitTitle">Packing &amp; weather notes</span>
+            <i id="kitChevron" class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform"></i>
+          </button>
+          <button onclick="dismissKit()" title="Hide" class="text-slate-500 hover:text-slate-300 transition px-1">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div id="kitBody" class="hidden mt-2 space-y-1.5 text-[11px] leading-relaxed">
+          <p><span class="font-semibold text-amber-300">Cold is trip-wide, not one afternoon.</span> <span id="kit-line1"></span></p>
+          <p><span class="font-semibold text-amber-300">Days 4–5 are the coldest.</span> <span id="kit-line2"></span></p>
+          <p><span class="font-semibold text-amber-300">Kansai is milder but humid.</span> <span id="kit-line3"></span></p>
+          <p><span class="font-semibold text-cyan-300">Rain or snow possible.</span> <span id="kit-line4"></span></p>
+          <p><span class="font-semibold text-cyan-300">One IC card covers all rail.</span> <span id="kit-line5"></span></p>
+          <p><span class="font-semibold text-cyan-300">Fixed closing time.</span> <span id="kit-line6"></span></p>
+        </div>
+      </div>
+
       <!-- Schedule Timeline Scroll View -->
       <div id="itineraryContainer" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 pb-24 md:pb-4">
         <!-- Rendered dynamically by JavaScript -->
@@ -584,6 +606,62 @@
       return coordinates.map(c => [c[1], c[0]]);
     }
 
+    const KIT_TEXT = {
+      en: {
+        title: 'Packing & weather notes',
+        line1: 'Late-October Sapporo averages 14°C high / 6°C low (JMA 1991–2020). The warmest part of the day is ~2–3 PM, so afternoon plans are fine — but days start near the daily low.',
+        line2: 'Lake Toya and Noboribetsu run 40–70 km inland and colder than Sapporo. Both tour days start ~7 AM outdoors, and Jozankei’s foot bath is outside.',
+        line3: 'Osaka and Kyoto average ~19–20°C by day. Warmer, but humid and wetter in autumn — layer lightly rather than bundling.',
+        line4: 'October averages 1 cm of snow in Sapporo, with sleet around 2 days per month. Bring an umbrella and a warm top layer; sunset is ~16:50.',
+        line5: 'A single ICOCA taps through every leg, Hokkaido included. Tap in and out within one area — crossing two areas needs a paper ticket.',
+        line6: 'Shiroi Koibito Park closes 17:00 (last entry 16:30). You arrive 15:45, so there’s no slack if Otaru runs late.'
+      },
+      zh: {
+        title: '行李与天气备注',
+        line1: '札幌十月下旬平均最高 14°C、最低 6°C（日本气象厅 1991–2020）。一天中最暖时段为下午 2–3 点，下午行程无碍 —— 但早晨接近当日最低温。',
+        line2: '洞爷湖与登别位于内陆 40–70 公里，比札幌更冷。两天一日游均于早上 7 点左右在户外开始，定山溪足浴也在户外。',
+        line3: '大阪与京都日间平均约 19–20°C。更暖和但湿度高、雨更多 —— 建议分层轻便穿着，无需厚裹。',
+        line4: '札幌十月平均降雪 1 厘米，雨夹雪约每月 2 天。请带雨伞与保暖上层衣物；日落约 16:50。',
+        line5: '一张 ICOCA 即可通行所有线路，含北海道。进出站请在同一区域内刷卡 —— 跨区域需另购纸票。',
+        line6: '白色恋人巧克力工厂公园 17:00 关闭（最晚入场 16:30）。你 15:45 抵达，若小樽行程延误则无余量。'
+      }
+    };
+
+    function applyKitText() {
+      const t = KIT_TEXT[currentLang] || KIT_TEXT.en;
+      document.getElementById('kitTitle').innerText = t.title;
+      ['line1', 'line2', 'line3', 'line4', 'line5', 'line6'].forEach((k, i) => {
+        const el = document.getElementById('kit-' + k);
+        if (el) el.innerText = t[k];
+      });
+    }
+
+    function toggleKit() {
+      const body = document.getElementById('kitBody');
+      const chev = document.getElementById('kitChevron');
+      const open = body.classList.toggle('hidden');
+      chev.classList.toggle('rotate-180', !open);
+      try { localStorage.setItem('kitOpen', open ? '0' : '1'); } catch (e) {}
+    }
+
+    function dismissKit() {
+      document.getElementById('kitBanner').classList.add('hidden');
+      try { localStorage.setItem('kitDismissed', '1'); } catch (e) {}
+    }
+
+    function restoreKit() {
+      let dismissed = '0', open = '0';
+      try { dismissed = localStorage.getItem('kitDismissed') || '0'; open = localStorage.getItem('kitOpen') || '0'; } catch (e) {}
+      if (dismissed === '1') return;
+      const banner = document.getElementById('kitBanner');
+      banner.classList.remove('hidden');
+      if (open === '1') {
+        document.getElementById('kitBody').classList.remove('hidden');
+        document.getElementById('kitChevron').classList.add('rotate-180');
+      }
+      applyKitText();
+    }
+
     function setLanguage(lang) {
       currentLang = lang;
       
@@ -605,6 +683,8 @@
       document.getElementById('tab-all').innerText = lang === 'en' ? 'All 10 Days' : '全部10天';
       document.getElementById('tab-hokkaido').innerText = lang === 'en' ? 'Hokkaido (D1-D6)' : '北海道 (D1-D6)';
       document.getElementById('tab-kansai').innerText = lang === 'en' ? 'Kansai (D7-D10)' : '关西 (D7-D10)';
+
+      applyKitText();
 
       updateMobileMapButtonText();
       
@@ -958,6 +1038,7 @@
       renderItinerary();
       renderAllRoutesOnMap();
       initTickerAnimation();
+      restoreKit();
     };
   </script>
 </body>
