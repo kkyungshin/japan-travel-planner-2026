@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Japan Travel Planner 2026 | 日本行程规划 2026</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    :root {
+      --sat: env(safe-area-inset-top);
+      --sab: env(safe-area-inset-bottom);
+      --sal: env(safe-area-inset-left);
+      --sar: env(safe-area-inset-right);
+    }
+
+    body { 
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      padding-top: var(--sat);
+      padding-bottom: var(--sab);
+      padding-left: var(--sal);
+      padding-right: var(--sar);
+    }
+
+    /* Dynamic Viewport Height Fix for Mobile Browsers */
+    .h-dvh-custom {
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    
+    .leaflet-popup-content-wrapper {
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 0.75rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      padding: 0;
+    }
+    .leaflet-popup-tip {
+      background: #1e293b;
+      border: 1px solid #334155;
+    }
+    .leaflet-container {
+      background-color: #0f172a !important;
+    }
+    
+    .custom-number-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 11px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .user-location-marker {
+      width: 18px;
+      height: 18px;
+      background-color: #3b82f6;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 12px #3b82f6;
+      animation: pulse-ring 2s infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+      70% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+
+    /* Auto Scrolling Ticker Animation Container */
+    .ticker-viewport {
+      overflow: hidden;
+      position: relative;
+      width: 100%;
+    }
+
+    #liveTickerText {
+      display: inline-block;
+      white-space: nowrap;
+      will-change: transform;
+      transform: translateX(0%);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-dvh-custom flex flex-col overflow-hidden select-none">
+
+  <!-- Header & Real-Time Bar -->
+  <header class="bg-slate-900 border-b border-slate-800 px-3 md:px-6 py-2 flex-shrink-0 flex justify-between items-center z-20 shadow-xl">
+    <div class="flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-red-600 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-red-500/20">
+        <i class="fa-solid fa-torii-gate text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 id="ui-app-title" class="text-base md:text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-rose-300 to-amber-300 leading-tight">
+            Japan Travel Planner 2026
+          </h1>
+          <span class="hidden lg:inline-block text-[10px] bg-red-950/80 text-red-400 border border-red-800/60 px-2 py-0.5 rounded-full font-mono">
+            Synced with Google Sheet
+          </span>
+        </div>
+        <p id="ui-app-subtitle" class="text-[11px] text-slate-400">Oct 23 – Nov 01 • 10 Days (Hokkaido & Kansai)</p>
+      </div>
+    </div>
+    
+    <!-- Real-time Controls & Indicators -->
+    <div class="flex items-center gap-2">
+      <!-- Live JST Clock -->
+      <div class="hidden sm:flex flex-col items-end px-2.5 py-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+        <div class="flex items-center gap-1.5 text-[10px] text-slate-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>JST Clock</span>
+        </div>
+        <span id="jstClock" class="font-mono font-bold text-slate-200">--:--:-- JST</span>
+      </div>
+
+      <!-- Locate Me Button -->
+      <button id="locateBtn" onclick="requestUserLocation()" class="px-2.5 py-1.5 bg-blue-600/90 hover:bg-blue-500 text-white text-xs rounded-xl transition border border-blue-500/50 flex items-center gap-1.5 shadow active:scale-95">
+        <i class="fa-solid fa-location-crosshairs text-blue-200"></i>
+        <span id="locateBtnText">Locate Me</span>
+      </button>
+
+      <!-- Language Switcher -->
+      <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+        <button id="lang-en-btn" onclick="setLanguage('en')" class="px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow">EN</button>
+        <button id="lang-zh-btn" onclick="setLanguage('zh')" class="px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white">中文</button>
+      </div>
+
+      <button onclick="filterLeg('all')" class="hidden sm:flex px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl transition border border-slate-700 items-center gap-1.5 shadow">
+        <i class="fa-solid fa-globe text-red-400"></i> <span id="ui-overview-btn">Overview Map</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Live 2026 Travel Updates Ticker -->
+  <div class="bg-slate-900/90 border-b border-slate-800 px-3 py-1 text-[11px] flex items-center gap-2 overflow-hidden text-slate-300">
+    <span class="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex-shrink-0 flex items-center gap-1 z-10 shadow-md">
+      <i class="fa-solid fa-bell animate-bounce"></i> 2026 Travel Alert
+    </span>
+    <div id="tickerViewport" class="ticker-viewport flex-1 text-slate-400 font-medium">
+      <div id="liveTickerText">
+        🍁 Autumn Foliage Peak: Sapporo Ginkgo Ave (Oct 24–28) • Biei Blue Pond & Jozankei Autumn Lights Active • Tax Refund: Visit Japan Web QR scan required at CTS & KIX
+      </div>
+    </div>
+  </div>
+
+  <!-- Main View Container -->
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+    <!-- Left Itinerary Column -->
+    <div id="itinerarySidebar" class="w-full md:w-5/12 lg:w-4/12 bg-slate-900 border-r border-slate-800 flex flex-col h-full z-10 shadow-2xl">
+      
+      <!-- Region Filter Tabs -->
+      <div class="p-2 bg-slate-950 border-b border-slate-800 flex gap-1.5 overflow-x-auto custom-scrollbar flex-shrink-0">
+        <button onclick="filterLeg('all')" id="tab-all" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 text-white shadow whitespace-nowrap">All 10 Days</button>
+        <button onclick="filterLeg('hokkaido')" id="tab-hokkaido" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 whitespace-nowrap">Hokkaido (D1-D6)</button>
+        <button onclick="filterLeg('kansai')" id="tab-kansai" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 whitespace-nowrap">Kansai (D7-D10)</button>
+      </div>
+
+      <!-- Quick Day Bar Chips -->
+      <div class="px-2 py-1.5 bg-slate-900/90 border-b border-slate-800/80 flex gap-1 overflow-x-auto custom-scrollbar flex-shrink-0">
+        <button onclick="selectDay(1)" id="chip-1" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D1</button>
+        <button onclick="selectDay(2)" id="chip-2" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D2</button>
+        <button onclick="selectDay(3)" id="chip-3" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D3</button>
+        <button onclick="selectDay(4)" id="chip-4" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D4</button>
+        <button onclick="selectDay(5)" id="chip-5" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D5</button>
+        <button onclick="selectDay(6)" id="chip-6" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D6</button>
+        <button onclick="selectDay(7)" id="chip-7" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D7</button>
+        <button onclick="selectDay(8)" id="chip-8" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D8</button>
+        <button onclick="selectDay(9)" id="chip-9" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D9</button>
+        <button onclick="selectDay(10)" id="chip-10" class="day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50">D10</button>
+      </div>
+
+      <!-- Location Status Banner -->
+      <div id="locationBanner" class="hidden bg-blue-950/80 border-b border-blue-800/80 px-3 py-1.5 text-xs text-blue-200 flex justify-between items-center transition-all">
+        <span class="flex items-center gap-1.5">
+          <i class="fa-solid fa-location-dot text-blue-400 animate-bounce"></i>
+          <span id="userCoordsText">GPS Active</span>
+        </span>
+        <span id="locationDistanceSummary" class="text-[11px] font-mono text-blue-300">Calculating distances...</span>
+      </div>
+
+      <!-- Schedule Timeline Scroll View -->
+      <div id="itineraryContainer" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 pb-24 md:pb-4">
+        <!-- Rendered dynamically by JavaScript -->
+      </div>
+    </div>
+
+    <!-- Right Map View Container -->
+    <div id="mapWrapper" class="w-full md:w-7/12 lg:w-8/12 h-full absolute md:relative inset-0 z-0 hidden md:block bg-slate-950">
+      <div id="map" class="w-full h-full"></div>
+      
+      <!-- Floating Map Legend Overlay -->
+      <div class="absolute bottom-20 md:bottom-4 left-4 right-4 md:right-auto z-[500] bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-2xl text-xs text-slate-300 max-w-sm pointer-events-none">
+        <div class="flex items-center gap-2 mb-0.5">
+          <span id="routeStatusDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="mapLegendTitle" class="font-bold text-slate-100">10-Day Route Overview</span>
+        </div>
+        <p id="mapLegendSubtitle" class="text-slate-400 text-[11px]">Select a day card to highlight road paths & pins.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Mobile Sticky Bottom Bar (Toggle Map) -->
+  <div class="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-4 py-2.5 pb-[calc(0.625rem+var(--sab))] flex justify-between items-center shadow-2xl">
+    <div class="text-xs text-slate-300">
+      <span id="mobile-status-label" class="font-bold text-slate-100">Days 1 - 10</span>
+    </div>
+    <button id="mobileMapToggleBtn" onclick="toggleMobileMap()" class="px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 text-white font-semibold text-xs rounded-xl shadow-lg flex items-center gap-2 active:scale-95 transition">
+      <i class="fa-solid fa-map-location-dot"></i>
+      <span id="mobileMapToggleText">Show Map / 显示地图</span>
+    </button>
+  </div>
+
+  <script>
+    // State Variables
+    let currentLang = 'en';
+    let isMobileMapVisible = false;
+    let userLocation = null; // { lat, lng }
+    let userMarker = null;
+
+    // Google Sheets Synced 10-Day Bilingual Dataset
+    const daysData = [
+      {
+        id: 1,
+        leg: 'hokkaido',
+        date: 'Oct 23, 2026 (Fri) / 10月23日 (周五)',
+        color: '#ef4444',
+        title: { en: 'Sapporo Arrival & City Highlights', zh: '抵达成吉思汗・札幌市区观光' },
+        estCost: '¥4,450',
+        stops: [
+          { name: { en: 'Arrive New Chitose Airport (CTS)', zh: '抵达新千岁机场 (CTS)' }, time: '1:00 PM', desc: { en: 'Pick up JR Pass if using. Check into hotel.', zh: '办理入境并搭乘 JR 快速机场线 (~37分钟, ¥1,150)。' }, cost: '¥1,150', lat: 42.7752, lng: 141.6923 },
+          { name: { en: 'Hotel Monterey Edelhof Sapporo', zh: '札幌蒙特利埃德尔霍夫酒店' }, time: '3:00 PM', desc: { en: 'Exit 22 or 23 from Sapporo Station. Check-in.', zh: '从札幌站 Exit 22/23 出站步行前往办理入住。' }, cost: '¥2,300', lat: 43.0637, lng: 141.3562 },
+          { name: { en: 'Soup Curry GARAKU Sapporo', zh: '汤咖喱 GARAKU 札幌本店' }, time: '3:45 PM', desc: { en: 'Recommended Lunch: Hokkaido rich soup curry.', zh: '品尝北海道特色浓郁香料汤咖喱。' }, cost: '¥1,800', lat: 43.0569, lng: 141.3551 },
+          { name: { en: 'Odori Park & Sapporo TV Tower', zh: '大通公园与札幌电视塔' }, time: '4:30 PM', desc: { en: 'Sunset Autumn foliage. TV Tower deck entrance.', zh: '漫步赏秋季红叶，登上电视塔展望台。' }, cost: '¥1,000', lat: 43.0611, lng: 141.3564 },
+          { name: { en: 'Tanukikoji & ABC Mart Grand Stage', zh: '狸小路商店街与 ABC Mart' }, time: '6:00 PM', desc: { en: 'Covered arcade souvenirs, drugs & ASICS Novablast 6.', zh: '逛拱廊街与 ABC Mart 旗舰店（选购 ASICS）。' }, cost: 'Free', lat: 43.0573, lng: 141.3524 },
+          { name: { en: 'Susukino Miso Ramen & Nikka Sign', zh: '薄野味噌拉面与 Nikka 霓虹牌' }, time: '7:30 PM', desc: { en: 'Susukino Area dinner & iconic street photos.', zh: '在薄野区域享用招牌味噌拉面并合影打卡。' }, cost: '¥1,200', lat: 43.0545, lng: 141.3533 }
+        ]
+      },
+      {
+        id: 2,
+        leg: 'hokkaido',
+        date: 'Oct 24, 2026 (Sat) / 10月24日 (周六)',
+        color: '#f97316',
+        title: { en: 'Sapporo City, Ginkgo Ave & Mt. Moiwa', zh: '札幌市区、银杏大道与藻岩山夜景' },
+        estCost: '¥2,600',
+        stops: [
+          { name: { en: 'Breakfast (Matsuya / Lawson / 7-11)', zh: '早餐 (松屋 / Lawson / 7-11)' }, time: '8:00 AM', desc: { en: 'Quick Japanese breakfast.', zh: '享用便捷日式早餐。' }, cost: '¥600', lat: 43.0615, lng: 141.3540 },
+          { name: { en: 'Nijo Market', zh: '二条市场' }, time: '9:00 AM', desc: { en: 'Sightseeing & morning seafood snacks (~1hr).', zh: '游览海鲜市场享用新鲜海鲜小吃。' }, cost: '¥1,500', lat: 43.0583, lng: 141.3585 },
+          { name: { en: 'Hokkaido University Ginkgo Ave', zh: '北海道大学银杏大道' }, time: '10:30 AM', desc: { en: 'Yellow autumn foliage stroll (~1hr).', zh: '漫步金黄色的秋季银杏金黄大道。' }, cost: '¥200', lat: 43.0722, lng: 141.3431 },
+          { name: { en: 'Lunch — Nemuro Hanamaru Sushi', zh: '午餐 — 根室花丸回转寿司' }, time: '12:00 PM', desc: { en: 'Popular conveyor-belt sushi at Sapporo Station.', zh: '札幌站 JR Tower 人气根室回转寿司。' }, cost: '¥2,200', lat: 43.0686, lng: 141.3508 },
+          { name: { en: 'Sapporo Beer Museum', zh: '札幌啤酒博物馆' }, time: '1:30 PM', desc: { en: 'Bus 188 from station north exit or 2km walk.', zh: '搭乘 188 路巴士或步行前往参观。' }, cost: '¥300', lat: 43.0714, lng: 141.3695 },
+          { name: { en: 'Mt. Moiwa Ropeway Summit Night View', zh: '藻岩山缆车山顶夜景' }, time: '3:45 PM', desc: { en: 'Ropeway + Morris Car to summit. Love Locks.', zh: '搭乘缆车与莫里斯车登上山顶俯瞰顶级夜景。' }, cost: '¥2,100', lat: 43.0242, lng: 141.3328 },
+          { name: { en: 'Dinner — Ebisoba Ichigen Main Shop', zh: '晚餐 — 虾そば一幻 本店' }, time: '7:30 PM', desc: { en: 'Rich sweet shrimp broth ramen dinner.', zh: '享用浓郁鲜美甜虾汤底拉面。' }, cost: '¥1,200', lat: 43.0545, lng: 141.3533 }
+        ]
+      },
+      {
+        id: 3,
+        leg: 'hokkaido',
+        date: 'Oct 25, 2026 (Sun) / 10月25日 (周日)',
+        color: '#eab308',
+        title: { en: 'Otaru Day Trip & Shiroi Koibito Park', zh: '小樽运河老街与白色恋人公园' },
+        estCost: '¥4,200',
+        stops: [
+          { name: { en: 'Sapporo Station → Minami-Otaru Station', zh: '札幌站 → 南小樽站' }, time: '8:00 AM', desc: { en: 'JR Rapid (~30min, ¥750). Sit on right side for sea view.', zh: '搭乘 JR 快速列车，建议靠右坐观赏海景。' }, cost: '¥750', lat: 43.1878, lng: 141.0076 },
+          { name: { en: 'LeTAO Main Store Cheesecake', zh: 'LeTAO 本店双层芝士蛋糕' }, time: '9:00 AM', desc: { en: 'Famous Double Fromage cheesecake brunch.', zh: '品尝经典的双层芝士蛋糕与烘焙甜点。' }, cost: '¥1,200', lat: 43.1901, lng: 141.0075 },
+          { name: { en: 'Music Box Museum & Sakaimachi St', zh: '小樽音乐盒堂与境町通' }, time: '9:30 AM', desc: { en: 'Free entry music box museum & glass workshops.', zh: '免费参观音乐盒堂及玻璃工艺街。' }, cost: '¥500', lat: 43.1904, lng: 141.0078 },
+          { name: { en: 'Lunch — Otaru Poseidon / Sankaku', zh: '午餐 — 小樽波塞冬 / 三角市场' }, time: '11:30 AM', desc: { en: 'Fresh Kaisen-don seafood bowl.', zh: '享用新鲜海鲜丼饭。' }, cost: '¥1,500', lat: 43.1980, lng: 140.9985 },
+          { name: { en: 'Otaru Canal Stroll', zh: '小樽运河散步' }, time: '1:30 PM', desc: { en: 'Gas lamps & stone warehouses near Asakusa Bridge.', zh: '浅草桥旁复古石造仓库与运河步道。' }, cost: 'Free', lat: 43.1983, lng: 140.9998 },
+          { name: { en: 'Shiroi Koibito Park (Chocolate Factory)', zh: '白色恋人巧克力工厂公园' }, time: '3:45 PM', desc: { en: 'JR to Hassamu/Miyanosawa. Factory tour & lounge.', zh: '工厂参观与欧式庭园点灯。' }, cost: '¥1,200', lat: 43.0886, lng: 141.2710 },
+          { name: { en: 'Return to Central Sapporo (Odori)', zh: '返回札幌市区（大通站）' }, time: '9:00 PM', desc: { en: 'Tozai Line subway back to Odori Station.', zh: '搭乘东西线地铁返回大通站。' }, cost: '¥290', lat: 43.0611, lng: 141.3564 }
+        ]
+      },
+      {
+        id: 4,
+        leg: 'hokkaido',
+        date: 'Oct 26, 2026 (Mon) / 10月26日 (周一)',
+        color: '#10b981',
+        title: { en: 'Asahikawa Zoo & Biei Blue Pond (Klook)', zh: '旭川动物园与美瑛青池一日游' },
+        estCost: '¥9,500',
+        stops: [
+          { name: { en: 'Board Tour Bus at Sapporo TV Tower', zh: '札幌电视塔集合点搭乘一日游巴士' }, time: '7:40 AM', desc: { en: 'Depart for Asahikawa.', zh: '准时集合搭乘观光巴士前往旭川。' }, cost: 'Tour Included', lat: 43.0611, lng: 141.3564 },
+          { name: { en: 'Asahiyama Zoo', zh: '旭山动物园' }, time: '10:30 AM', desc: { en: 'Penguin walk, polar bears & seals.', zh: '观赏企鹅散步与北极熊极地馆。' }, cost: 'Included', lat: 43.7683, lng: 142.4800 },
+          { name: { en: 'Seven Stars Tree & Biei Hills', zh: '七星之树与美瑛丘陵' }, time: '12:30 PM', desc: { en: 'Grab bento lunch. Visit iconic Biei trees.', zh: '享用便当并游览经典拼布之路风景树。' }, cost: 'Included', lat: 43.6198, lng: 142.4418 },
+          { name: { en: 'Shirahige Falls', zh: '白须瀑布' }, time: '2:00 PM', desc: { en: '20 mins stop at subterranean cascading falls.', zh: '观赏悬崖岩缝涌出的蓝色清澈瀑布。' }, cost: 'Included', lat: 43.4751, lng: 142.6394 },
+          { name: { en: 'Shirogane Blue Pond (Aoiike)', zh: '白金青池' }, time: '2:20 PM', desc: { en: 'Cobalt-blue volcanic pond with autumn trees.', zh: '游览梦幻蓝色火山池与秋季枯木。' }, cost: 'Included', lat: 43.4934, lng: 142.6136 },
+          { name: { en: 'Return to Sapporo Station', zh: '返回札幌站下车' }, time: '6:00 PM', desc: { en: 'Evening shopping in Sapporo.', zh: '返回札幌市区后享用晚餐与自由购物。' }, cost: 'Free', lat: 43.0686, lng: 141.3508 }
+        ]
+      },
+      {
+        id: 5,
+        leg: 'hokkaido',
+        date: 'Oct 27, 2026 (Tue) / 10月27日 (周二)',
+        color: '#06b6d4',
+        title: { en: 'Noboribetsu Hell Valley & Lake Toya', zh: '登别地狱谷与洞爷湖温泉一日游' },
+        estCost: '¥12,000',
+        stops: [
+          { name: { en: 'Board Tour Bus at Sapporo St. North Exit', zh: '札幌站北口团体巴士站集合' }, time: '7:30 AM', desc: { en: 'Depart for Noboribetsu.', zh: '搭乘 Day Tour 巴士前往登别。' }, cost: 'Tour Included', lat: 43.0695, lng: 141.3508 },
+          { name: { en: 'Noboribetsu Hell Valley (Jigokudani)', zh: '登别地狱谷' }, time: '9:50 AM', desc: { en: '40 mins walk. Steaming sulfur vents.', zh: '游览地热烟雾缭绕的火山谷地。' }, cost: 'Free', lat: 42.4975, lng: 141.1432 },
+          { name: { en: 'Oyunuma Natural Foot Spa', zh: '大汤沼天然足浴' }, time: '10:40 AM', desc: { en: 'Warm volcanic river footbath in forest.', zh: '森林溪流天然温泉体验足浴。' }, cost: 'Free', lat: 42.5028, lng: 141.1445 },
+          { name: { en: 'Showa-shinzan & Usuzan Ropeway', zh: '昭和新山与有珠山缆车' }, time: '11:30 AM', desc: { en: 'Active volcano dome. Ropeway option (¥2,000).', zh: '近距离观赏活火山与体验索道缆车。' }, cost: '¥2,000', lat: 42.5422, lng: 140.8601 },
+          { name: { en: 'Lake Toya Lakeside & Lake Hill Farm', zh: '洞爷湖畔与 Lake Hill 农场' }, time: '1:20 PM', desc: { en: 'Caldera lake views & Mt. Yotei gelato.', zh: '湖畔漫步并在农场品尝牛奶冰淇淋。' }, cost: '¥500', lat: 42.5539, lng: 140.8197 },
+          { name: { en: 'Jozankei Futami Park Foot Bath', zh: '定山溪二见公园足浴' }, time: '4:40 PM', desc: { en: 'Hot spring village footbath on return route.', zh: '返程途中体验定山溪温泉镇足浴。' }, cost: 'Free', lat: 42.9648, lng: 141.1611 }
+        ]
+      },
+      {
+        id: 6,
+        leg: 'hokkaido',
+        date: 'Oct 28, 2026 (Wed) / 10月28日 (周三)',
+        color: '#6366f1',
+        title: { en: 'Nijo Market & Sapporo Outlet Shopping', zh: '二条市场与 Mitsui Outlet 购物日' },
+        estCost: '¥3,500',
+        stops: [
+          { name: { en: 'Nijo Market Seafood Breakfast', zh: '二条市场海鲜早餐' }, time: '8:30 AM', desc: { en: 'Fresh donburi breakfast.', zh: '享用新鲜海鲜丼早餐。' }, cost: '¥2,000', lat: 43.0583, lng: 141.3585 },
+          { name: { en: 'Mitsui Outlet Park Kitahiroshima', zh: '三井 Outlet Park 北广岛' }, time: '10:30 AM', desc: { en: 'Direct bus from Sapporo. Indoor outlet shopping.', zh: '搭乘直达巴士前往大型室内 Outlet 购物。' }, cost: '¥600 Bus', lat: 42.9649, lng: 141.4645 },
+          { name: { en: 'Sapporo Factory', zh: '札幌工厂 (Sapporo Factory)' }, time: '2:30 PM', desc: { en: 'Shopping in historic red-brick atrium complex.', zh: '红砖历史建筑中庭综合购物中心。' }, cost: 'Free', lat: 43.0658, lng: 141.3625 },
+          { name: { en: 'Stellar Place & Daimaru', zh: 'Stellar Place 与大丸百货' }, time: '5:00 PM', desc: { en: 'JR Sapporo Station department stores.', zh: '札幌站直通大型百货商场购物。' }, cost: 'Free', lat: 43.0686, lng: 141.3508 },
+          { name: { en: 'Pack & Prepare for Early Flight', zh: '整理行李准备明日早班机' }, time: '8:30 PM', desc: { en: 'Tomorrow JL2000 departs CTS at 8:55am. Leave by 6:30am.', zh: '提醒：明日早晨 6:30 前须搭车前往机场。' }, cost: '—', lat: 43.0637, lng: 141.3562 }
+        ]
+      },
+      {
+        id: 7,
+        leg: 'kansai',
+        date: 'Oct 29, 2026 (Thu) / 10月29日 (周四)',
+        color: '#ec4899',
+        title: { en: 'Fly to Osaka + Kobe Steak & Waterfront', zh: '飞往大阪与神户牛排港湾日落' },
+        estCost: '¥18,500',
+        stops: [
+          { name: { en: 'Sapporo Station → CTS Airport', zh: '札幌站 → 新千岁机场' }, time: '6:30 AM', desc: { en: 'JR Rapid Airport (~37min, ¥1,150). Platform 1.', zh: '搭乘早班 JR 快速机场线。' }, cost: '¥1,150', lat: 42.7752, lng: 141.6923 },
+          { name: { en: 'Flight JL2000: CTS → ITM', zh: 'JAL 航班 JL2000: CTS 飞往 ITM' }, time: '8:55 AM', desc: { en: 'Arrive Osaka Itami Airport at 10:55 AM.', zh: '飞往大阪伊丹机场。' }, cost: 'Flight', lat: 34.7855, lng: 135.4382 },
+          { name: { en: 'ITM Airport → Namba (OCAT Bus)', zh: '伊丹机场 → 难波 (机场巴士)' }, time: '11:30 AM', desc: { en: 'Limousine bus (~25-35min, ¥650). Drop bags at 323 Namba.', zh: '搭乘巴士至难波并存放行李。' }, cost: '¥650', lat: 34.6655, lng: 135.5011 },
+          { name: { en: 'Kobe Beef Kobe-Kippo Sannomiya', zh: '神户牛排 Kobe-Kippo 三宫' }, time: '1:40 PM', desc: { en: 'Hanshin Line to Sannomiya (~50min, ¥420). A5 Kobe Beef set.', zh: '搭乘阪神电车前往三宫享用神户牛排。' }, cost: '¥5,500', lat: 34.6939, lng: 135.1954 },
+          { name: { en: 'Kitano Ijinkan-gai Street', zh: '北野异人馆街' }, time: '3:00 PM', desc: { en: '19th-century foreign merchant mansions.', zh: '游览保留完好的西洋异国建筑街区。' }, cost: '¥500', lat: 34.7003, lng: 135.1901 },
+          { name: { en: 'Shin-Kobe Ropeway & Herb Gardens', zh: '新神户索道与布引香草园' }, time: '3:40 PM', desc: { en: 'Ropeway up Mt. Rokko slope over Kobe bay.', zh: '乘坐缆车俯瞰神户城市与海湾全景。' }, cost: '¥1,800', lat: 34.7042, lng: 135.1969 },
+          { name: { en: 'Kobe Port & Meriken Park Sunset', zh: '神户港与美利坚公园日落' }, time: '4:35 PM', desc: { en: 'Sunset stroll near Port Tower & Mosaic.', zh: '神户港湾步道漫步欣赏夜景。' }, cost: 'Free', lat: 34.6828, lng: 135.1867 },
+          { name: { en: 'Nankinmachi (Chinatown) Dinner', zh: '南京町（神户中华街）晚餐' }, time: '6:40 PM', desc: { en: '15 min walk from Port. Gyoza & street snacks.', zh: '中华街品尝煎饺与特色小吃。' }, cost: '¥1,500', lat: 34.6888, lng: 135.1882 }
+        ]
+      },
+      {
+        id: 8,
+        leg: 'kansai',
+        date: 'Oct 30, 2026 (Fri) / 10月30日 (周五)',
+        color: '#8b5cf6',
+        title: { en: 'Uji Matcha Heritage & Nara Deer Park', zh: '宇治抹茶寻香与奈良古都赏鹿' },
+        estCost: '¥5,800',
+        stops: [
+          { name: { en: 'Osaka (Namba/Yodoyabashi) → Keihan Uji', zh: '大阪 → 京阪宇治站' }, time: '7:30 AM', desc: { en: 'Keihan Main Line to Chushojima → Uji Line (~90min).', zh: '搭乘京阪电车前往宇治。' }, cost: '¥680', lat: 34.8911, lng: 135.8073 },
+          { name: { en: 'Byodoin Temple Phoenix Hall', zh: '平等院凤凰堂' }, time: '9:00 AM', desc: { en: 'UNESCO iconic Phoenix Hall (10-yen coin icon).', zh: '世界遗产平等院（日元10硬币背景）。' }, cost: '¥600', lat: 34.8893, lng: 135.8077 },
+          { name: { en: 'Uji Matcha Omotesando Street', zh: '宇治抹茶参道' }, time: '10:15 AM', desc: { en: 'Fresh matcha soft serve & matcha soba lunch.', zh: '品尝现磨抹茶冰淇淋与抹茶荞麦面。' }, cost: '¥1,800', lat: 34.8908, lng: 135.8058 },
+          { name: { en: 'Uji Station → JR Nara Station', zh: 'JR 宇治站 → JR 奈良站' }, time: '12:15 PM', desc: { en: 'JR Nara Line (~25min, ¥500).', zh: '搭乘 JR 奈良线前往奈良。' }, cost: '¥500', lat: 34.6806, lng: 135.8190 },
+          { name: { en: 'Todai-ji Temple & Nara Deer Park', zh: '东大寺与奈良公园' }, time: '1:00 PM', desc: { en: 'Great Buddha Hall & friendly free-roaming deer.', zh: '参拜大佛殿并体验喂食小鹿。' }, cost: '¥800', lat: 34.6851, lng: 135.8430 },
+          { name: { en: 'Kasuga Taisha & Mt. Wakakusa Sunset', zh: '春日大社与若草山夕阳' }, time: '3:45 PM', desc: { en: 'Lantern-lined paths & golden hour over Nara.', zh: '漫步石灯笼步道并登高看夕阳。' }, cost: '¥150 Bus', lat: 34.6888, lng: 135.8580 },
+          { name: { en: 'Return to Dotonbori (Osaka)', zh: '返回大阪道顿堀' }, time: '7:30 PM', desc: { en: 'Glico Running Man sign, Takoyaki & night street food.', zh: '打卡格力高标志与享用章鱼烧。' }, cost: '¥1,500', lat: 34.6687, lng: 135.5013 }
+        ]
+      },
+      {
+        id: 9,
+        leg: 'kansai',
+        date: 'Oct 31, 2026 (Sat) / 10月31日 (周六)',
+        color: '#a855f7',
+        title: { en: 'Kyoto Torii, Kiyomizu & Pontocho Alley', zh: '京都千本鸟居、清水寺与先斗町' },
+        estCost: '¥6,200',
+        stops: [
+          { name: { en: 'Fushimi Inari Taisha Shrine', zh: '伏见稻荷大社' }, time: '8:30 AM', desc: { en: 'Walk through thousands of vermilion torii gates.', zh: '漫步壮观的千本鸟居红色隧道。' }, cost: 'Free', lat: 34.9671, lng: 135.7727 },
+          { name: { en: 'Kiyomizu-dera Temple', zh: '清水寺' }, time: '10:30 AM', desc: { en: 'Iconic wooden stage overlooking Kyoto city.', zh: '站在悬空木质清水舞台俯瞰京都市区。' }, cost: '¥400', lat: 34.9949, lng: 135.7850 },
+          { name: { en: 'Ninenzaka & Sannenzaka Slopes', zh: '二年坂・三年坂' }, time: '12:00 PM', desc: { en: 'Preserved historic stone streets & matcha tea shops.', zh: '古色古香的石板路与老式茶屋。' }, cost: 'Free', lat: 34.9972, lng: 135.7816 },
+          { name: { en: 'Kinkaku-ji (Golden Pavilion)', zh: '金阁寺（鹿苑寺）' }, time: '2:30 PM', desc: { en: 'Zen temple completely covered in gold leaf.', zh: '贴满金箔的金碧辉煌禅宗寺院。' }, cost: '¥500', lat: 35.0394, lng: 135.7292 },
+          { name: { en: 'Teramachi & Hanamikoji (Gion)', zh: '寺町通与祇园花见小路' }, time: '5:00 PM', desc: { en: 'Historic shopping arcade & traditional geisha district.', zh: '探访古朴木造茶屋街区。' }, cost: 'Free', lat: 35.0022, lng: 135.7749 },
+          { name: { en: 'Pontocho Alley Dinner', zh: '先斗町小巷晚餐' }, time: '6:30 PM', desc: { en: 'Atmospheric dining alley along Kamogawa River.', zh: '鸭川旁具京都特色的窄巷美食街。' }, cost: '¥3,000', lat: 35.0051, lng: 135.7708 }
+        ]
+      },
+      {
+        id: 10,
+        leg: 'kansai',
+        date: 'Nov 01, 2026 (Sun) / 11月01日 (周日)',
+        color: '#14b8a6',
+        title: { en: 'Tajiri Seafood Market → Rinku Outlets → KIX', zh: '田尻港早市・临空 Outlets・关西机场离境' },
+        estCost: '¥4,500',
+        stops: [
+          { name: { en: 'Namba → Yoshiminosato Station', zh: '难波 → 吉见之里站' }, time: '7:30 AM', desc: { en: 'Nankai Line train from Namba (~45min, ¥690).', zh: '搭乘南海本线至吉见之里站。' }, cost: '¥690', lat: 34.3976, lng: 135.2917 },
+          { name: { en: 'Tajiri Sunday Morning Market', zh: '田尻港周日早市' }, time: '8:30 AM', desc: { en: 'Fresh seafood tempura, kaisen-don & grilled squid.', zh: '体验渔港早市品尝海鲜天妇罗与海鲜丼。' }, cost: '¥2,000', lat: 34.3989, lng: 135.2842 },
+          { name: { en: 'Rinku Premium Outlets', zh: '临空城 Premium Outlets' }, time: '11:00 AM', desc: { en: 'Store luggage in lockers. Seaside brand outlet shopping.', zh: '海滨品牌折扣店购物与海景摩天轮。' }, cost: 'Free', lat: 34.4068, lng: 135.2954 },
+          { name: { en: 'Kansai International Airport (KIX)', zh: '关西国际机场 (KIX)' }, time: '4:00 PM', desc: { en: 'Nankai / JR across Sky Gate Bridge for Singapore flight.', zh: '跨越跨海大桥前往 KIX 乘机返回新加坡。' }, cost: '¥380', lat: 34.4320, lng: 135.2304 }
+        ]
+      }
+    ];
+
+    // Initialize Leaflet Map
+    const map = L.map('map', { zoomControl: false }).setView([38.0, 137.5], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    let currentLayerGroup = L.layerGroup().addTo(map);
+    let selectedDayId = null;
+    const routeCache = {};
+
+    function createCustomMarker(number, color) {
+      return L.divIcon({
+        className: 'custom-pin',
+        html: `<div class="custom-number-marker" style="background-color: ${color}; width: 26px; height: 26px;">${number}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+    }
+
+    // Distance Calculation Formula (Haversine in km)
+    function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371; // Earth's radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return (R * c).toFixed(1);
+    }
+
+    function locMsg(en, zh) { return currentLang === 'en' ? en : zh; }
+
+    function resetLocateBtn() {
+      document.getElementById('locateBtnText').innerText = userLocation
+        ? locMsg('Located', '已定位')
+        : locMsg('Locate Me', '定位我的位置');
+    }
+
+    function requestUserLocation() {
+      const btnText = document.getElementById('locateBtnText');
+
+      if (!('geolocation' in navigator)) {
+        showLocationError(locMsg('Geolocation is not supported by this browser.', '您的浏览器不支持地理定位服务。'));
+        return;
+      }
+
+      const originOk = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (!originOk) {
+        showLocationError(locMsg(
+          'Location requires HTTPS. Please host this file on an HTTPS server.',
+          '定位服务仅支持在 HTTPS 环境下运行，请在安全的主机服务器上访问此页面。'
+        ));
+        return;
+      }
+
+      btnText.innerText = locMsg('Locating...', '定位中...');
+
+      const highAccuracyOptions = { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 };
+      const lowAccuracyOptions  = { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 };
+
+      function handleSuccess(position) {
+        userLocation = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+
+        resetLocateBtn();
+
+        const banner = document.getElementById('locationBanner');
+        banner.classList.remove('hidden');
+        const coordsEl = document.getElementById('userCoordsText');
+        coordsEl.style.color = '';
+        coordsEl.innerText = `GPS: ${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}`;
+
+        let nearest = Infinity;
+        daysData.forEach(d => d.stops.forEach(s => {
+          nearest = Math.min(nearest, parseFloat(calculateHaversineDistance(userLocation.lat, userLocation.lng, s.lat, s.lng)));
+        }));
+        document.getElementById('locationDistanceSummary').innerText =
+          locMsg(`Nearest stop: ${nearest.toFixed(1)} km`, `最近行程点：${nearest.toFixed(1)} 公里`);
+
+        if (userMarker) map.removeLayer(userMarker);
+        const userIcon = L.divIcon({
+          className: 'custom-pin',
+          html: `<div class="user-location-marker"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9]
+        });
+
+        userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(map)
+          .bindPopup(`<b>${locMsg('Your Current Location', '您的当前位置')}</b>`);
+
+        map.setView([userLocation.lat, userLocation.lng], 12);
+
+        const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
+        renderItinerary(currentFilter);
+      }
+
+      function handleFailure(error) {
+        console.error('Geolocation failed:', error);
+        resetLocateBtn();
+
+        let errMsg = locMsg('Unable to fetch location. Please try again.', '无法获取定位，请重试。');
+        if (error.code === error.PERMISSION_DENIED) {
+          errMsg = locMsg('Location permission denied.', '定位权限被拒绝。请在浏览器设置中开启权限。');
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          errMsg = locMsg('Location unavailable. Turn on GPS.', '无法获取位置，请开启手机 GPS。');
+        } else if (error.code === error.TIMEOUT) {
+          errMsg = locMsg('Location request timed out.', '定位请求超时，请检查网络或 GPS 信号。');
+        }
+        showLocationError(errMsg);
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        handleSuccess,
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            handleFailure(error);
+          } else {
+            navigator.geolocation.getCurrentPosition(handleSuccess, handleFailure, lowAccuracyOptions);
+          }
+        },
+        highAccuracyOptions
+      );
+    }
+
+    function showLocationError(msg) {
+      document.getElementById('locationBanner').classList.remove('hidden');
+      const coordsEl = document.getElementById('userCoordsText');
+      coordsEl.style.color = '#fda4af';
+      coordsEl.innerText = msg;
+      document.getElementById('locationDistanceSummary').innerText = '';
+      resetLocateBtn();
+    }
+
+    async function fetchOSRMRoute(coordinates) {
+      const coordString = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
+      if (routeCache[coordString]) return routeCache[coordString];
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const leafletCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+          routeCache[coordString] = leafletCoords;
+          return leafletCoords;
+        }
+      } catch (err) {
+        console.warn('OSRM route fallback:', err);
+      }
+      return coordinates.map(c => [c[1], c[0]]);
+    }
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      
+      document.getElementById('lang-en-btn').className = lang === 'en' 
+        ? 'px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow' 
+        : 'px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white';
+      
+      document.getElementById('lang-zh-btn').className = lang === 'zh' 
+        ? 'px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow' 
+        : 'px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white';
+
+      document.getElementById('ui-app-title').innerText = lang === 'en' ? 'Japan Travel Planner 2026' : '日本行程规划 2026';
+      document.getElementById('ui-app-subtitle').innerText = lang === 'en' ? 'Oct 23 – Nov 01 • 10 Days (Hokkaido & Kansai)' : '10月23日 – 11月01日 • 10天 (北海道与关西)';
+      document.getElementById('ui-overview-btn').innerText = lang === 'en' ? 'Overview Map' : '全景地图';
+      document.getElementById('locateBtnText').innerText = userLocation 
+        ? (lang === 'en' ? 'Located' : '已定位') 
+        : (lang === 'en' ? 'Locate Me' : '定位我的位置');
+      
+      document.getElementById('tab-all').innerText = lang === 'en' ? 'All 10 Days' : '全部10天';
+      document.getElementById('tab-hokkaido').innerText = lang === 'en' ? 'Hokkaido (D1-D6)' : '北海道 (D1-D6)';
+      document.getElementById('tab-kansai').innerText = lang === 'en' ? 'Kansai (D7-D10)' : '关西 (D7-D10)';
+
+      updateMobileMapButtonText();
+      
+      const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
+      renderItinerary(currentFilter);
+
+      if (selectedDayId) {
+        selectDay(selectedDayId);
+      } else {
+        renderAllRoutesOnMap();
+      }
+    }
+
+    function renderItinerary(filter = 'all') {
+      const container = document.getElementById('itineraryContainer');
+      container.innerHTML = '';
+
+      const filteredDays = daysData.filter(d => filter === 'all' || d.leg === filter);
+
+      filteredDays.forEach(day => {
+        const isSelected = selectedDayId === day.id;
+        const card = document.createElement('div');
+        card.id = `day-card-${day.id}`;
+        card.className = `p-3 rounded-xl transition cursor-pointer border ${
+          isSelected 
+            ? 'bg-slate-800 border-red-500 ring-1 ring-red-500/50 shadow-lg' 
+            : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+        }`;
+        
+        card.onclick = () => selectDay(day.id);
+
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-1.5">
+            <div>
+              <span class="text-[11px] font-bold px-2 py-0.5 rounded text-white shadow-sm" style="background-color: ${day.color}">Day ${day.id}</span>
+              <span class="text-[11px] text-slate-400 ml-2 font-medium">${day.date}</span>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-slate-950 text-emerald-400 font-mono border border-slate-800">${day.estCost}</span>
+          </div>
+          <h3 class="font-semibold text-sm text-slate-100 mb-2">${day.title[currentLang]}</h3>
+          
+          <div class="space-y-2 pl-2 border-l-2 border-slate-800">
+            ${day.stops.map((stop, idx) => {
+              let distHtml = '';
+              if (userLocation) {
+                const dist = calculateHaversineDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
+                distHtml = `<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 font-mono border border-blue-800/60 ml-1.5"><i class="fa-solid fa-location-arrow text-[8px] mr-1"></i>${dist} km</span>`;
+              }
+
+              return `
+                <div class="text-xs">
+                  <div class="flex items-center gap-1.5 text-slate-300 font-medium">
+                    <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold flex-shrink-0" style="background-color: ${day.color}">${idx + 1}</span>
+                    <span class="truncate">${stop.name[currentLang]}</span>${distHtml}
+                    <span class="text-[10px] text-slate-500 ml-auto flex-shrink-0 font-mono">${stop.time}</span>
+                  </div>
+                  <div class="flex justify-between items-center text-[11px] text-slate-400 pl-5 mt-0.5">
+                    <span class="truncate pr-2">${stop.desc[currentLang]}</span>
+                    <span class="text-[10px] text-slate-500 font-mono flex-shrink-0">${stop.cost}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      for (let i = 1; i <= 10; i++) {
+        const chip = document.getElementById(`chip-${i}`);
+        if (chip) {
+          if (i === selectedDayId) {
+            chip.className = 'day-chip px-2 py-1 rounded-md bg-red-600 text-white font-mono text-xs font-bold shadow';
+          } else {
+            chip.className = 'day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50';
+          }
+        }
+      }
+    }
+
+    function filterLeg(leg) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-red-600', 'text-white');
+        btn.classList.add('bg-slate-800', 'text-slate-300');
+      });
+      const activeBtn = document.getElementById(`tab-${leg}`);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-red-600', 'text-white');
+        activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+      }
+
+      if (leg === 'all') {
+        selectedDayId = null;
+        renderAllRoutesOnMap();
+      } else {
+        const firstDay = daysData.find(d => d.leg === leg);
+        if (firstDay) selectDay(firstDay.id);
+      }
+
+      renderItinerary(leg);
+    }
+
+    async function selectDay(dayId) {
+      selectedDayId = dayId;
+      const day = daysData.find(d => d.id === dayId);
+      if (!day) return;
+
+      document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Calculating Day ${day.id}...` : `正在计算第 ${day.id} 天路线...`;
+
+      currentLayerGroup.clearLayers();
+      const osrmCoords = day.stops.map(s => [s.lng, s.lat]);
+
+      day.stops.forEach((stop, idx) => {
+        const marker = L.marker([stop.lat, stop.lng], {
+          icon: createCustomMarker(idx + 1, day.color)
+        }).addTo(currentLayerGroup);
+
+        let userDistStr = '';
+        if (userLocation) {
+          const d = calculateHaversineDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
+          userDistStr = `<div class="text-[10px] text-blue-400 font-mono mt-1"><i class="fa-solid fa-location-arrow mr-1"></i>${d} km from you</div>`;
+        }
+
+        marker.bindPopup(`
+          <div class="p-2 min-w-[190px]">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style="background-color: ${day.color}">Stop ${idx + 1}</span>
+              <span class="text-[10px] text-slate-400 font-mono">${stop.time}</span>
+            </div>
+            <div class="font-bold text-xs text-slate-100">${stop.name[currentLang]}</div>
+            <div class="text-[11px] text-slate-300 mt-1">${stop.desc[currentLang]}</div>
+            ${userDistStr}
+            <div class="text-[10px] text-emerald-400 font-mono mt-1 font-semibold">${stop.cost}</div>
+          </div>
+        `);
+      });
+
+      if (day.id === 7) {
+        const cts = [42.7752, 141.6923];
+        const itm = [34.7855, 135.4382];
+        L.polyline([cts, [38.8, 137.8], itm], {
+          color: '#ec4899', weight: 3, dashArray: '6, 10', opacity: 0.85
+        }).addTo(currentLayerGroup);
+
+        const kobeCoords = day.stops.slice(2).map(s => [s.lng, s.lat]);
+        const roadPath = await fetchOSRMRoute(kobeCoords);
+        L.polyline(roadPath, { color: day.color, weight: 5, opacity: 0.85 }).addTo(currentLayerGroup);
+        map.fitBounds(L.polyline([cts, ...roadPath]).getBounds(), { padding: [40, 40] });
+      } else {
+        const roadPath = await fetchOSRMRoute(osrmCoords);
+        const polyline = L.polyline(roadPath, {
+          color: day.color, weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round'
+        }).addTo(currentLayerGroup);
+        map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+      }
+
+      document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+      document.getElementById('mapLegendTitle').innerText = `Day ${day.id}: ${day.title[currentLang]}`;
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • OSRM Road Route` : `${day.stops.length} 个行程点 • 实际公路路线`;
+
+      const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
+      renderItinerary(currentFilter);
+    }
+
+    async function renderAllRoutesOnMap() {
+      currentLayerGroup.clearLayers();
+      document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? 'Loading Overview Routes...' : '加载全景路线中...';
+
+      const allPoints = [];
+
+      for (const day of daysData) {
+        const osrmCoords = day.stops.map(s => [s.lng, s.lat]);
+        allPoints.push(...day.stops.map(s => [s.lat, s.lng]));
+
+        day.stops.forEach((stop) => {
+          L.circleMarker([stop.lat, stop.lng], {
+            radius: 4, fillColor: day.color, color: '#ffffff', weight: 1, fillOpacity: 0.9
+          }).addTo(currentLayerGroup).bindPopup(`
+            <div class="p-1.5">
+              <div class="text-[10px] font-bold text-slate-400">Day ${day.id}</div>
+              <div class="font-bold text-xs text-slate-100">${stop.name[currentLang]}</div>
+            </div>
+          `);
+        });
+
+        if (day.id === 7) {
+          L.polyline([[42.7752, 141.6923], [38.8, 137.8], [34.7855, 135.4382]], { color: '#ec4899', weight: 2, dashArray: '5, 8' }).addTo(currentLayerGroup);
+          const kobePath = await fetchOSRMRoute(day.stops.slice(2).map(s => [s.lng, s.lat]));
+          L.polyline(kobePath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
+        } else {
+          const roadPath = await fetchOSRMRoute(osrmCoords);
+          L.polyline(roadPath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
+        }
+      }
+
+      if (allPoints.length > 0) map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
+
+      document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Route Overview' : '10天全景行程路线';
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai Leaflet + OSRM map' : '北海道与关西全景地图路线';
+    }
+
+    function toggleMobileMap() {
+      const mapWrapper = document.getElementById('mapWrapper');
+      const sidebar = document.getElementById('itinerarySidebar');
+      isMobileMapVisible = !isMobileMapVisible;
+
+      if (isMobileMapVisible) {
+        mapWrapper.classList.remove('hidden');
+        sidebar.classList.add('hidden');
+        map.invalidateSize();
+      } else {
+        mapWrapper.classList.add('hidden');
+        sidebar.classList.remove('hidden');
+      }
+
+      updateMobileMapButtonText();
+    }
+
+    function updateMobileMapButtonText() {
+      const btnText = document.getElementById('mobileMapToggleText');
+      if (isMobileMapVisible) {
+        btnText.innerText = currentLang === 'en' ? 'Hide Map' : '隐藏地图';
+      } else {
+        btnText.innerText = currentLang === 'en' ? 'Show Map' : '显示地图';
+      }
+    }
+
+    // Live JST Clock Functionality
+    function updateJSTClock() {
+      const now = new Date();
+      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const jstDate = new Date(utc + (3600000 * 9));
+      
+      const hours = String(jstDate.getHours()).padStart(2, '0');
+      const minutes = String(jstDate.getMinutes()).padStart(2, '0');
+      const seconds = String(jstDate.getSeconds()).padStart(2, '0');
+      
+      document.getElementById('jstClock').innerText = `${hours}:${minutes}:${seconds} JST`;
+    }
+    setInterval(updateJSTClock, 1000);
+    updateJSTClock();
+
+    // Auto-Scroll Ticker Animation
+    function initTickerAnimation() {
+      const viewport = document.getElementById('tickerViewport');
+      const text = document.getElementById('liveTickerText');
+      if (!viewport || !text) return;
+
+      let animationFrameId = null;
+      let startTimestamp = null;
+      const speedPixelsPerSec = 45;
+
+      function step(timestamp) {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const elapsed = (timestamp - startTimestamp) / 1000;
+        const distanceMoved = elapsed * speedPixelsPerSec;
+
+        const viewportWidth = viewport.clientWidth;
+        const textWidth = text.scrollWidth;
+        const totalDistance = textWidth + viewportWidth;
+
+        if (distanceMoved < totalDistance) {
+          const currentPos = viewportWidth - distanceMoved;
+          text.style.transform = `translateX(${currentPos}px)`;
+          animationFrameId = requestAnimationFrame(step);
+        } else {
+          text.style.transform = `translateX(-${textWidth}px)`;
+          setTimeout(() => {
+            text.style.transform = `translateX(${viewportWidth}px)`;
+            startTimestamp = null;
+            animationFrameId = requestAnimationFrame(step);
+          }, 2000);
+        }
+      }
+
+      text.style.transform = `translateX(${viewport.clientWidth}px)`;
+      animationFrameId = requestAnimationFrame(step);
+    }
+
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+    });
+
+    window.onload = function() {
+      renderItinerary();
+      renderAllRoutesOnMap();
+      initTickerAnimation();
+    };
+  </script>
+</body>
+</html>
