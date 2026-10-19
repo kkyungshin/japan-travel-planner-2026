@@ -144,12 +144,6 @@
         <span id="locateBtnText">Locate Me</span>
       </button>
 
-      <!-- Language Switcher -->
-      <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-        <button id="lang-en-btn" onclick="setLanguage('en')" class="px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow">EN</button>
-        <button id="lang-zh-btn" onclick="setLanguage('zh')" class="px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white">中文</button>
-      </div>
-
       <button onclick="filterLeg('all')" class="hidden sm:flex px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl transition border border-slate-700 items-center gap-1.5 shadow">
         <i class="fa-solid fa-globe text-red-400"></i> <span id="ui-overview-btn">Overview Map</span>
       </button>
@@ -275,6 +269,7 @@
     let pendingCoords = null;
     let flushTimer = null;
     let firstLocationFix = true;
+    let locationWatchStartedAt = 0;
 
     // Itinerary dataset - maintained directly in this file (no Sheet sync)
     const daysData = [
@@ -510,7 +505,8 @@
       banner.classList.remove('hidden');
       const coordsEl = document.getElementById('userCoordsText');
       coordsEl.style.color = '';
-      coordsEl.innerText = `GPS: ${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}`;
+      const acc = userLocation.accuracy > 0 ? ` ±${Math.round(userLocation.accuracy)}m` : '';
+      coordsEl.innerText = `GPS: ${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}${acc}`;
 
       if (userMarker) {
         userMarker.setLatLng([userLocation.lat, userLocation.lng]);
@@ -532,8 +528,11 @@
         const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
         renderItinerary(currentFilter);
 
-        // Omitting the zoom argument makes Leaflet keep the user's zoom.
-        map.setView([userLocation.lat, userLocation.lng]);
+        // Recentre without ever zooming out: if the map is on the country
+        // overview (zoom 5) the fix would be an invisible speck, so lift it
+        // to city level 12 like the pre-Settings one-shot locator did. An
+        // already-zoomed-in user keeps their zoom level.
+        map.setView([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), 12));
       }
 
       let nearest = Infinity;
@@ -546,6 +545,22 @@
 
     function flushPendingPosition() {
       if (!pendingCoords) return;
+
+      // Before the first fix is applied, hold out for a GPS-grade reading,
+      // as the pre-Settings one-shot locator did. A coarse fix (accuracy
+      // worse than 100 m) means the GPS has not locked yet - usually a cell
+      // or wi-fi triangulation - and would drop the marker streets away
+      // from the real position. If no accurate fix arrives, fall back to
+      // the best available one after 20 s instead of hanging on "Locating".
+      const accuracyLimit = 100; // metres
+      if (userLocation === null && pendingCoords.accuracy > accuracyLimit &&
+          Date.now() - locationWatchStartedAt < 20000) {
+        if (!flushTimer) {
+          flushTimer = setTimeout(() => { flushTimer = null; flushPendingPosition(); }, 1500);
+        }
+        return;
+      }
+
       const wait = locationInterval * 1000 - (Date.now() - lastLocationApplied);
       if (wait > 0) {
         if (flushTimer) clearTimeout(flushTimer);
@@ -597,6 +612,7 @@
       // movement instead of replaying a cached fix.
       const watchOptions = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
       firstLocationFix = true;
+      locationWatchStartedAt = Date.now();
 
       function handlePosition(position) {
         if (locationInterval === 0) return;
@@ -604,7 +620,8 @@
         // allows, so a throttled fix is deferred rather than dropped.
         pendingCoords = {
           lat: position.coords.latitude,
-          lng: position.coords.longitude
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy
         };
         flushPendingPosition();
       }
@@ -808,14 +825,6 @@
 
     function setLanguage(lang) {
       currentLang = lang;
-      
-      document.getElementById('lang-en-btn').className = lang === 'en' 
-        ? 'px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow' 
-        : 'px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white';
-      
-      document.getElementById('lang-zh-btn').className = lang === 'zh' 
-        ? 'px-2 py-0.5 rounded-lg font-semibold transition bg-red-600 text-white shadow' 
-        : 'px-2 py-0.5 rounded-lg font-semibold transition text-slate-400 hover:text-white';
 
       document.getElementById('ui-app-title').innerText = lang === 'en' ? 'Japan Travel Planner 2026' : '日本行程规划 2026';
       document.getElementById('ui-app-subtitle').innerText = lang === 'en' ? 'Oct 23 – Nov 01 • 10 Days (Hokkaido & Kansai)' : '10月23日 – 11月01日 • 10天 (北海道与关西)';
