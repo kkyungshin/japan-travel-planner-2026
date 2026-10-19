@@ -104,6 +104,14 @@
       will-change: transform;
       transform: translateX(0%);
     }
+
+    .next-stop-row {
+      background-color: rgba(6, 78, 59, 0.45);
+      margin-left: -0.25rem;
+      margin-right: -0.25rem;
+      padding: 0.25rem;
+      border-radius: 0.5rem;
+    }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 h-dvh-custom flex flex-col overflow-hidden select-none">
@@ -270,6 +278,8 @@
     let flushTimer = null;
     let firstLocationFix = true;
     let locationWatchStartedAt = 0;
+    let todayState = { dayId: null, nextIdx: null };
+    let weatherByDay = {};
 
     // Itinerary dataset - maintained directly in this file (no Sheet sync)
     const daysData = [
@@ -488,6 +498,186 @@
     }
 
     function locMsg(en, zh) { return currentLang === 'en' ? en : zh; }
+
+    // ---- Today (JST) ----
+
+    function getJstNow() {
+      const now = new Date();
+      return new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + 9 * 3600000);
+    }
+
+    function parseTimeToMinutes(str) {
+      const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(String(str).trim());
+      if (!m) return null;
+      let h = parseInt(m[1], 10) % 12;
+      if (m[3].toUpperCase() === 'PM') h += 12;
+      return h * 60 + parseInt(m[2], 10);
+    }
+
+    function computeTodayState() {
+      const jst = getJstNow();
+      const today = new Date(jst.getFullYear(), jst.getMonth(), jst.getDate());
+      const start = new Date(2026, 9, 23);
+      const diff = Math.round((today - start) / 86400000);
+      const dayId = diff >= 0 && diff <= 9 ? diff + 1 : null;
+
+      let nextIdx = null;
+      if (dayId) {
+        const day = daysData.find(d => d.id === dayId);
+        const nowMin = jst.getHours() * 60 + jst.getMinutes();
+        const idx = day.stops.findIndex(s => {
+          const t = parseTimeToMinutes(s.time);
+          return t !== null && t >= nowMin;
+        });
+        nextIdx = idx >= 0 ? idx : null;
+      }
+      return { dayId, nextIdx };
+    }
+
+    function applyNextStopBadges() {
+      const nextKey = todayState.dayId !== null && todayState.nextIdx !== null
+        ? `${todayState.dayId}-${todayState.nextIdx}`
+        : null;
+
+      document.querySelectorAll('.next-stop-badge').forEach(el => {
+        el.classList.toggle('hidden', el.dataset.stop !== nextKey);
+      });
+      document.querySelectorAll('.stop-row').forEach(el => {
+        el.classList.toggle('next-stop-row', el.dataset.row === nextKey);
+      });
+    }
+
+    function refreshToday() {
+      const prevDay = todayState.dayId;
+      todayState = computeTodayState();
+
+      if (todayState.dayId !== prevDay) {
+        if (todayState.dayId) {
+          selectDay(todayState.dayId, { scroll: false });
+        } else if (selectedDayId !== null) {
+          selectedDayId = null;
+          renderItinerary(getCurrentFilter());
+          renderAllRoutesOnMap();
+        }
+        return;
+      }
+      applyNextStopBadges();
+    }
+
+    // ---- Weather per day (Open-Meteo, no key) ----
+
+    const WMO_CODES = {
+      0: ['Clear sky', 'fa-sun', '#fbbf24'],
+      1: ['Mainly clear', 'fa-sun', '#fbbf24'],
+      2: ['Partly cloudy', 'fa-cloud-sun', '#e2e8f0'],
+      3: ['Overcast', 'fa-cloud', '#94a3b8'],
+      45: ['Fog', 'fa-smog', '#94a3b8'],
+      48: ['Fog', 'fa-smog', '#94a3b8'],
+      51: ['Drizzle', 'fa-cloud-rain', '#7dd3fc'],
+      53: ['Drizzle', 'fa-cloud-rain', '#7dd3fc'],
+      55: ['Drizzle', 'fa-cloud-rain', '#7dd3fc'],
+      56: ['Freezing drizzle', 'fa-cloud-rain', '#7dd3fc'],
+      57: ['Freezing drizzle', 'fa-cloud-rain', '#7dd3fc'],
+      61: ['Light rain', 'fa-cloud-rain', '#60a5fa'],
+      63: ['Rain', 'fa-cloud-rain', '#60a5fa'],
+      65: ['Heavy rain', 'fa-cloud-showers-heavy', '#3b82f6'],
+      66: ['Freezing rain', 'fa-cloud-rain', '#60a5fa'],
+      67: ['Freezing rain', 'fa-cloud-rain', '#60a5fa'],
+      71: ['Light snow', 'fa-snowflake', '#bae6fd'],
+      73: ['Snow', 'fa-snowflake', '#bae6fd'],
+      75: ['Heavy snow', 'fa-snowflake', '#e0f2fe'],
+      77: ['Snow grains', 'fa-snowflake', '#bae6fd'],
+      80: ['Showers', 'fa-cloud-showers-heavy', '#60a5fa'],
+      81: ['Showers', 'fa-cloud-showers-heavy', '#3b82f6'],
+      82: ['Heavy showers', 'fa-cloud-showers-heavy', '#3b82f6'],
+      85: ['Snow showers', 'fa-snowflake', '#bae6fd'],
+      86: ['Snow showers', 'fa-snowflake', '#e0f2fe'],
+      95: ['Thunderstorm', 'fa-cloud-bolt', '#f59e0b'],
+      96: ['Thunderstorm', 'fa-cloud-bolt', '#f59e0b'],
+      99: ['Thunderstorm', 'fa-cloud-bolt', '#f59e0b']
+    };
+
+    const WEATHER_TTL_MS = 30 * 60 * 1000;
+
+    function weatherDateForDayId(id) {
+      const d = new Date(2026, 9, 23 + (id - 1));
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    async function loadWeather() {
+      try {
+        const cached = JSON.parse(localStorage.getItem('wxCache') || 'null');
+        if (cached && Date.now() - cached.at < WEATHER_TTL_MS) {
+          weatherByDay = cached.data || {};
+          applyWeatherUI();
+          return;
+        }
+      } catch (e) {}
+
+      try {
+        // Anchor each day's forecast to the stop where the day is actually
+        // spent (mid-itinerary), not the departure point - Day 7 starts in
+        // Sapporo but is an Osaka/Kobe day.
+        const anchors = daysData.map(d => d.stops[Math.floor((d.stops.length - 1) / 2)] || d.stops[0]);
+        const lats = anchors.map(s => s.lat).join(',');
+        const lngs = anchors.map(s => s.lng).join(',');
+        const url = 'https://api.open-meteo.com/v1/forecast' +
+          `?latitude=${lats}&longitude=${lngs}` +
+          '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+          '&timezone=Asia%2FTokyo&start_date=2026-10-23&end_date=2026-11-01';
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [data];
+        const next = {};
+
+        daysData.forEach((day, i) => {
+          const series = list[i];
+          if (!series || !series.daily || !Array.isArray(series.daily.time)) return;
+          const idx = series.daily.time.indexOf(weatherDateForDayId(day.id));
+          if (idx === -1) return;
+          const tmax = series.daily.temperature_2m_max[idx];
+          const tmin = series.daily.temperature_2m_min[idx];
+          if (tmax === null || tmin === null) return;
+          next[day.id] = {
+            code: series.daily.weather_code[idx],
+            tmax,
+            tmin,
+            pop: series.daily.precipitation_probability_max[idx]
+          };
+        });
+
+        if (Object.keys(next).length === 0) return;
+        weatherByDay = next;
+        try {
+          localStorage.setItem('wxCache', JSON.stringify({ at: Date.now(), data: weatherByDay }));
+        } catch (e) {}
+        applyWeatherUI();
+      } catch (e) {
+        console.warn('Weather fetch failed:', e);
+      }
+    }
+
+    function applyWeatherUI() {
+      daysData.forEach(day => {
+        const el = document.getElementById(`wx-${day.id}`);
+        if (!el) return;
+        const w = weatherByDay[day.id];
+        if (!w) {
+          el.className = 'hidden';
+          el.innerHTML = '';
+          return;
+        }
+        const meta = WMO_CODES[w.code] || WMO_CODES[3];
+        el.className = 'text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 font-mono flex items-center gap-1 flex-shrink-0';
+        el.title = `${meta[0]} · ${Math.round(w.tmin)}°C to ${Math.round(w.tmax)}°C` +
+          (w.pop != null ? ` · ${Math.round(w.pop)}% precipitation` : '');
+        el.innerHTML = `<i class="fa-solid ${meta[1]}" style="color:${meta[2]}"></i>` +
+          `${Math.round(w.tmin)}°–${Math.round(w.tmax)}°` +
+          (w.pop != null ? ` <span class="text-blue-300">${Math.round(w.pop)}%</span>` : '');
+      });
+    }
 
     function resetLocateBtn() {
       document.getElementById('locateBtnText').innerText =
@@ -758,23 +948,104 @@
       resetLocateBtn();
     }
 
-    async function fetchOSRMRoute(coordinates) {
-      const coordString = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
-      if (routeCache[coordString]) return routeCache[coordString];
+    // Short hops are walked; anything longer is driven. Keeps the drawn
+    // line on the street the traveller actually uses: OSRM's driving profile
+    // detours around one-ways and pedestrian zones inside cities.
+    const WALK_MAX_KM = 2.5;
+    const ROUTE_SERVERS = {
+      walking: ['https://routing.openstreetmap.de/routed-foot/route/v1/walking/',
+                'https://router.project-osrm.org/route/v1/driving/'],
+      driving: ['https://router.project-osrm.org/route/v1/driving/']
+    };
 
-      const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+    // The public OSRM demo servers rate-limit bursts (HTTP 429), so route
+    // requests share two slots with a small gap between them.
+    const ROUTE_MAX_CONCURRENT = 2;
+    let routeActive = 0;
+    const routeQueue = [];
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    async function withRouteSlot(task) {
+      if (routeActive >= ROUTE_MAX_CONCURRENT) {
+        await new Promise(resolve => routeQueue.push(resolve));
+      }
+      routeActive++;
       try {
-        const response = await fetch(url);
-        const data = await response.json();
-        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-          const leafletCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-          routeCache[coordString] = leafletCoords;
-          return leafletCoords;
+        return await task();
+      } finally {
+        routeActive--;
+        const next = routeQueue.shift();
+        if (next) next();
+      }
+    }
+
+    async function fetchOSRMRoute(coordinates, mode = 'driving') {
+      const coordString = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
+      const cacheKey = `${mode}:${coordString}`;
+      if (routeCache[cacheKey]) return routeCache[cacheKey];
+
+      for (const base of ROUTE_SERVERS[mode] || ROUTE_SERVERS.driving) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          let data = null;
+          try {
+            data = await withRouteSlot(async () => {
+              await sleep(120);
+              const response = await fetch(`${base}${coordString}?overview=full&geometries=geojson`);
+              if (response.status === 429) return { rateLimited: true };
+              return response.json();
+            });
+          } catch (err) {
+            console.warn('OSRM route fallback:', err);
+            break;
+          }
+
+          if (data.rateLimited) {
+            await sleep(1200 + Math.random() * 800);
+            continue;
+          }
+          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            const leafletCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+            routeCache[cacheKey] = leafletCoords;
+            return leafletCoords;
+          }
+          break;
         }
-      } catch (err) {
-        console.warn('OSRM route fallback:', err);
       }
       return coordinates.map(c => [c[1], c[0]]);
+    }
+
+    function segmentMode(a, b) {
+      return parseFloat(calculateHaversineDistance(a.lat, a.lng, b.lat, b.lng)) <= WALK_MAX_KM
+        ? 'walking'
+        : 'driving';
+    }
+
+    async function fetchRouteForStops(stops) {
+      if (stops.length < 2) return stops.map(s => [s.lat, s.lng]);
+
+      // Merge consecutive hops that use the same mode so a walking chain is
+      // one request, not one per stop pair.
+      const groups = [];
+      for (let i = 0; i < stops.length - 1; i++) {
+        const mode = segmentMode(stops[i], stops[i + 1]);
+        const last = groups[groups.length - 1];
+        if (last && last.mode === mode) {
+          last.coords.push([stops[i + 1].lng, stops[i + 1].lat]);
+        } else {
+          groups.push({
+            mode,
+            coords: [[stops[i].lng, stops[i].lat], [stops[i + 1].lng, stops[i + 1].lat]]
+          });
+        }
+      }
+
+      const paths = await Promise.all(groups.map(g => fetchOSRMRoute(g.coords, g.mode)));
+      const line = [];
+      paths.forEach(path => {
+        if (line.length && path.length) path = path.slice(1);
+        line.push(...path);
+      });
+      return line;
     }
 
     const KIT_TEXT = {
@@ -924,6 +1195,7 @@
 
       filteredDays.forEach(day => {
         const isSelected = selectedDayId === day.id;
+        const isToday = todayState.dayId === day.id;
         const card = document.createElement('div');
         card.id = `day-card-${day.id}`;
         card.className = `p-3 rounded-xl transition cursor-pointer border ${
@@ -935,12 +1207,16 @@
         card.onclick = () => selectDay(day.id);
 
         card.innerHTML = `
-          <div class="flex justify-between items-start mb-1.5">
+          <div class="flex justify-between items-start gap-1.5 mb-1.5">
             <div>
               <span class="text-[11px] font-bold px-2 py-0.5 rounded text-white shadow-sm" style="background-color: ${day.color}">Day ${day.id}</span>
+              ${isToday ? '<span class="text-[9px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950 border border-emerald-800 px-1.5 py-0.5 rounded ml-1.5">Today</span>' : ''}
               <span class="text-[11px] text-slate-400 ml-2 font-medium">${day.date}</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded bg-slate-950 text-emerald-400 font-mono border border-slate-800">${dayCost(day)}</span>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <span id="wx-${day.id}" class="hidden"></span>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-950 text-emerald-400 font-mono border border-slate-800">${dayCost(day)}</span>
+            </div>
           </div>
           <h3 class="font-semibold text-sm text-slate-100 mb-2">${day.title[currentLang]}</h3>
           
@@ -951,12 +1227,15 @@
                 const dist = calculateHaversineDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
                 distHtml = `<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 font-mono border border-blue-800/60 ml-1.5"><i class="fa-solid fa-location-arrow text-[8px] mr-1"></i>${dist} km</span>`;
               }
+              const nextHtml = isToday
+                ? `<span class="next-stop-badge text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white flex-shrink-0 ${idx === todayState.nextIdx ? '' : 'hidden'}" data-stop="${day.id}-${idx}">${locMsg('Next', '下一站')}</span>`
+                : '';
 
               return `
-                <div class="text-xs">
+                <div class="text-xs stop-row" data-row="${day.id}-${idx}">
                   <div class="flex items-center gap-1.5 text-slate-300 font-medium">
                     <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold flex-shrink-0" style="background-color: ${day.color}">${idx + 1}</span>
-                    <span class="truncate">${stop.name[currentLang]}</span>${distHtml}
+                    <span class="truncate">${stop.name[currentLang]}</span>${distHtml}${nextHtml}
                     <span class="text-[10px] text-slate-500 ml-auto flex-shrink-0 font-mono">${stop.time}</span>
                   </div>
                   <div class="flex justify-between items-center text-[11px] text-slate-400 pl-5 mt-0.5">
@@ -975,13 +1254,17 @@
       for (let i = 1; i <= 10; i++) {
         const chip = document.getElementById(`chip-${i}`);
         if (chip) {
-          if (i === selectedDayId) {
-            chip.className = 'day-chip px-2 py-1 rounded-md bg-red-600 text-white font-mono text-xs font-bold shadow';
-          } else {
-            chip.className = 'day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50';
-          }
+          const isTodayChip = i === todayState.dayId;
+          chip.className = (i === selectedDayId
+            ? 'day-chip px-2 py-1 rounded-md bg-red-600 text-white font-mono text-xs font-bold shadow'
+            : 'day-chip px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs border border-slate-700/50') +
+            (isTodayChip ? ' ring-2 ring-emerald-400' : '');
+          chip.title = isTodayChip ? locMsg('Today', '今天') : '';
         }
       }
+
+      applyWeatherUI();
+      applyNextStopBadges();
     }
 
     function filterLeg(leg) {
@@ -1020,7 +1303,6 @@
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Calculating Day ${day.id}...` : `正在计算第 ${day.id} 天路线...`;
 
       currentLayerGroup.clearLayers();
-      const osrmCoords = day.stops.map(s => [s.lng, s.lat]);
       const markerPoints = spreadDuplicateCoords(day.stops);
 
       markerPoints.forEach((stop, idx) => {
@@ -1055,12 +1337,11 @@
           color: '#ec4899', weight: 3, dashArray: '6, 10', opacity: 0.85
         }).addTo(currentLayerGroup);
 
-        const kobeCoords = day.stops.slice(3).map(s => [s.lng, s.lat]);
-        const roadPath = await fetchOSRMRoute(kobeCoords);
+        const roadPath = await fetchRouteForStops(day.stops.slice(3));
         L.polyline(roadPath, { color: day.color, weight: 5, opacity: 0.85 }).addTo(currentLayerGroup);
         map.fitBounds(L.polyline([cts, ...roadPath]).getBounds(), { padding: [40, 40] });
       } else {
-        const roadPath = await fetchOSRMRoute(osrmCoords);
+        const roadPath = await fetchRouteForStops(day.stops);
         const polyline = L.polyline(roadPath, {
           color: day.color, weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round'
         }).addTo(currentLayerGroup);
@@ -1069,7 +1350,7 @@
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = `Day ${day.id}: ${day.title[currentLang]}`;
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • OSRM Road Route` : `${day.stops.length} 个行程点 • 实际公路路线`;
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • OSRM walking & driving routes` : `${day.stops.length} 个行程点 • 实际步行与行车路线`;
     }
 
     async function renderAllRoutesOnMap() {
@@ -1080,7 +1361,6 @@
       const allPoints = [];
 
       for (const day of daysData) {
-        const osrmCoords = day.stops.map(s => [s.lng, s.lat]);
         allPoints.push(...day.stops.map(s => [s.lat, s.lng]));
 
         day.stops.forEach((stop) => {
@@ -1096,10 +1376,10 @@
 
         if (day.id === 7) {
           L.polyline([[42.7752, 141.6923], [38.8, 137.8], [34.7855, 135.4382]], { color: '#ec4899', weight: 2, dashArray: '5, 8' }).addTo(currentLayerGroup);
-          const kobePath = await fetchOSRMRoute(day.stops.slice(3).map(s => [s.lng, s.lat]));
+          const kobePath = await fetchRouteForStops(day.stops.slice(3));
           L.polyline(kobePath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
         } else {
-          const roadPath = await fetchOSRMRoute(osrmCoords);
+          const roadPath = await fetchRouteForStops(day.stops);
           L.polyline(roadPath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
         }
       }
@@ -1108,7 +1388,7 @@
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Route Overview' : '10天全景行程路线';
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai Leaflet + OSRM map' : '北海道与关西全景地图路线';
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai • walking & driving routes' : '北海道与关西全景 • 步行与行车路线';
     }
 
     function toggleMobileMap() {
@@ -1196,10 +1476,17 @@
     window.onload = function() {
       loadSettings();
       if (currentLang !== 'en') setLanguage(currentLang);
+      todayState = computeTodayState();
       renderItinerary();
-      renderAllRoutesOnMap();
+      if (todayState.dayId) {
+        selectDay(todayState.dayId, { scroll: false });
+      } else {
+        renderAllRoutesOnMap();
+      }
+      loadWeather();
       initTickerAnimation();
       restoreKit();
+      setInterval(refreshToday, 30000);
     };
 
   </script>
