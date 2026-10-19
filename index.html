@@ -546,23 +546,28 @@
     function flushPendingPosition() {
       if (!pendingCoords) return;
 
-      // Before the first fix is applied, hold out for a GPS-grade reading,
-      // as the pre-Settings one-shot locator did. A coarse fix (accuracy
-      // worse than 100 m) means the GPS has not locked yet - usually a cell
-      // or wi-fi triangulation - and would drop the marker streets away
-      // from the real position. If no accurate fix arrives, fall back to
-      // the best available one after 20 s instead of hanging on "Locating".
-      const accuracyLimit = 100; // metres
+      // First fix: accept any GPS-grade reading within 300 m immediately.
+      // Coarser readings (cell/wi-fi triangulation) get at most 6 s to be
+      // beaten by the antenna - long enough to lock, short enough that the
+      // button never feels stuck.
+      const accuracyLimit = 300; // metres
       if (userLocation === null && pendingCoords.accuracy > accuracyLimit &&
-          Date.now() - locationWatchStartedAt < 20000) {
+          Date.now() - locationWatchStartedAt < 6000) {
         if (!flushTimer) {
-          flushTimer = setTimeout(() => { flushTimer = null; flushPendingPosition(); }, 1500);
+          flushTimer = setTimeout(() => { flushTimer = null; flushPendingPosition(); }, 700);
         }
         return;
       }
 
+      // Once the dot is on the map, a materially better fix may jump the
+      // update queue (at most every 3 s) so the marker sharpens quickly
+      // instead of waiting for the next scheduled interval.
+      const sharpened = userLocation !== null &&
+        pendingCoords.accuracy < userLocation.accuracy * 0.5 &&
+        Date.now() - lastLocationApplied >= 3000;
+
       const wait = locationInterval * 1000 - (Date.now() - lastLocationApplied);
-      if (wait > 0) {
+      if (wait > 0 && !sharpened) {
         if (flushTimer) clearTimeout(flushTimer);
         flushTimer = setTimeout(() => { flushTimer = null; flushPendingPosition(); }, wait);
         return;
@@ -608,9 +613,10 @@
 
       btnText.innerText = locMsg('Locating...', '定位中...');
 
-      // maximumAge 0 forces a fresh reading so the marker actually tracks
-      // movement instead of replaying a cached fix.
-      const watchOptions = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
+      // maximumAge lets an existing recent fix be shown instantly while the
+      // watch keeps refining it; enableHighAccuracy still asks the GPS to
+      // take over as soon as it locks.
+      const watchOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 };
       firstLocationFix = true;
       locationWatchStartedAt = Date.now();
 
