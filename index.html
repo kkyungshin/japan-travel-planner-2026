@@ -890,6 +890,25 @@
       document.getElementById('locateBtnIcon').classList.toggle('text-blue-600', !located);
     }
 
+    // Patch every per-stop "x km" badge in the sidebar from the latest fix.
+    // renderItinerary() only rebuilds cards on day/filter changes, so live
+    // tracking must update the badges in place - otherwise they go stale
+    // after the first fix.
+    function refreshStopDistances() {
+      if (!userLocation) return;
+      const badges = document.querySelectorAll('.stop-dist[data-stop-lat]');
+      if (!badges.length) {
+        renderItinerary(getCurrentFilter());
+        return;
+      }
+      badges.forEach(el => {
+        const lat = parseFloat(el.dataset.stopLat);
+        const lng = parseFloat(el.dataset.stopLng);
+        const dist = calculateHaversineDistance(userLocation.lat, userLocation.lng, lat, lng);
+        el.innerHTML = `<i class="fa-solid fa-location-arrow text-[8px] mr-1"></i>${dist} km`;
+      });
+    }
+
     function renderUserLocationUI(center) {
       resetLocateBtn();
 
@@ -900,8 +919,9 @@
       const acc = userLocation.accuracy > 0 ? ` ±${Math.round(userLocation.accuracy)}m` : '';
       coordsEl.innerText = `GPS: ${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}${acc}`;
 
+      const target = [userLocation.lat, userLocation.lng];
       if (userMarker) {
-        userMarker.setLatLng([userLocation.lat, userLocation.lng]);
+        userMarker.setLatLng(target);
       } else {
         const userIcon = L.divIcon({
           className: 'custom-pin',
@@ -909,23 +929,13 @@
           iconSize: [18, 18],
           iconAnchor: [9, 9]
         });
-        userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(map)
+        userMarker = L.marker(target, { icon: userIcon }).addTo(map)
           .bindPopup(`<b>${locMsg('Your Current Location', '您的当前位置')}</b>`);
       }
 
-      // A deliberate press refreshes the per-stop "x km from you" badges in
-      // the sidebar. renderItinerary() only rebuilds those cards - it never
-      // touches the map - so this cannot disturb the viewport.
-      if (center) {
-        const currentFilter = document.querySelector('.tab-btn.bg-red-600')?.id.replace('tab-', '') || 'all';
-        renderItinerary(currentFilter);
-
-        // Recentre without ever zooming out: if the map is on the country
-        // overview (zoom 5) the fix would be an invisible speck, so lift it
-        // to city level 12 like the pre-Settings one-shot locator did. An
-        // already-zoomed-in user keeps their zoom level.
-        map.setView([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), 12));
-      }
+      // Every accepted fix refreshes the sidebar distances, not just the
+      // deliberate recenter press.
+      refreshStopDistances();
 
       let nearest = Infinity;
       daysData.forEach(d => d.stops.forEach(s => {
@@ -933,6 +943,14 @@
       }));
       document.getElementById('locationDistanceSummary').innerText =
         locMsg(`Nearest stop: ${nearest.toFixed(1)} km`, `最近行程点：${nearest.toFixed(1)} 公里`);
+
+      // Follow the fix: always recentre on a deliberate press; otherwise pan
+      // when the new pin has left the visible map (simulator jump / walking
+      // off-screen). Never zoom out below city level on the first fix.
+      const inView = map.getBounds().pad(-0.15).contains(L.latLng(target[0], target[1]));
+      if (center || !inView) {
+        map.setView(target, center ? Math.max(map.getZoom(), 12) : Math.max(map.getZoom(), 11));
+      }
     }
 
     function flushPendingPosition() {
@@ -1714,7 +1732,7 @@
               let distHtml = '';
               if (userLocation) {
                 const dist = calculateHaversineDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
-                distHtml = `<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 font-mono border border-blue-800/60 ml-1.5"><i class="fa-solid fa-location-arrow text-[8px] mr-1"></i>${dist} km</span>`;
+                distHtml = `<span class="stop-dist text-[9px] px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 font-mono border border-blue-800/60 ml-1.5" data-stop-lat="${stop.lat}" data-stop-lng="${stop.lng}"><i class="fa-solid fa-location-arrow text-[8px] mr-1"></i>${dist} km</span>`;
               }
               const nextHtml = isToday
                 ? `<span class="next-stop-badge text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white flex-shrink-0 ${idx === todayState.nextIdx ? '' : 'hidden'}" data-stop="${day.id}-${idx}">${locMsg('Next', '下一站')}</span>`
