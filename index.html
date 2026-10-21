@@ -1894,23 +1894,28 @@
       if (day.id === 7) {
         const cts = [42.7752, 141.6923];
         const itm = [34.7855, 135.4382];
-        const [toAirport, fromAirport] = await Promise.all([
-          fetchRouteForStops(day.stops.slice(0, 3), day),
-          fetchRouteForStops(day.stops.slice(3), day)
-        ]);
+        const toAirport = await fetchRouteForStops(day.stops.slice(0, 3), day);
         if (renderToken !== dayRenderToken) return;
+
+        // Kansai half (ITM -> Namba and onward) is drawn as one clean JR/rail
+        // connector rather than the tangled multi-hop transit path.
+        const kansaiStops = compactRouteStops(day.stops.slice(3));
+        const kansaiPath = kansaiStops.map(s => [s.lat, s.lng]);
 
         if (schematicLayer) currentLayerGroup.removeLayer(schematicLayer);
         L.polyline([cts, [38.8, 137.8], itm], {
           color: '#ec4899', weight: 3, dashArray: '6, 10', opacity: 0.85
         }).addTo(currentLayerGroup);
-        drawRouteSegments([...toAirport.segments, ...fromAirport.segments], day.color);
-        fitPoints.push(cts, [38.8, 137.8], itm);
-        [...toAirport.segments, ...fromAirport.segments].forEach(segment => fitPoints.push(...segment.path));
+        drawRouteSegments(
+          [...toAirport.segments, { mode: 'transit', path: kansaiPath, transitLegs: 1, modes: ['RAIL'] }],
+          day.color
+        );
+        fitPoints.push(cts, [38.8, 137.8], itm, ...kansaiPath);
+        toAirport.segments.forEach(segment => fitPoints.push(...segment.path));
         summary = {
-          transitLegs: toAirport.transitLegs + fromAirport.transitLegs,
+          transitLegs: toAirport.transitLegs + 1,
           tourLegs: 0,
-          modes: [...new Set([...toAirport.modes, ...fromAirport.modes])]
+          modes: [...new Set([...toAirport.modes, 'RAIL'])]
         };
       } else {
         summary = await fetchRouteForStops(day.stops, day);
