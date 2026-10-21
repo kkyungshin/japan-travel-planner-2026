@@ -837,6 +837,16 @@
 
     function resetLocateBtn() {
       document.getElementById('locateBtnIcon').classList.remove('animate-spin');
+      const btn = document.getElementById('locateBtn');
+      const located = !!userLocation && locationInterval !== 0;
+      btn.classList.toggle('bg-blue-600/90', located);
+      btn.classList.toggle('hover:bg-blue-500', located);
+      btn.classList.toggle('border-blue-500/50', located);
+      btn.classList.toggle('bg-white', !located);
+      btn.classList.toggle('hover:bg-slate-100', !located);
+      btn.classList.toggle('border-slate-300', !located);
+      document.getElementById('locateBtnIcon').classList.toggle('text-blue-200', located);
+      document.getElementById('locateBtnIcon').classList.toggle('text-blue-600', !located);
     }
 
     function renderUserLocationUI(center) {
