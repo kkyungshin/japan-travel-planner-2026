@@ -231,9 +231,8 @@
       </div>
 
       <!-- Locate Me Button -->
-      <button id="locateBtn" onclick="requestUserLocation()" class="px-2.5 py-1.5 bg-blue-600/90 hover:bg-blue-500 text-white text-xs rounded-xl transition border border-blue-500/50 flex items-center gap-1.5 shadow active:scale-95">
-        <i class="fa-solid fa-location-crosshairs text-blue-200"></i>
-        <span id="locateBtnText">Locate Me</span>
+      <button id="locateBtn" onclick="requestUserLocation()" title="Locate Me" class="px-2.5 py-1.5 bg-blue-600/90 hover:bg-blue-500 text-white text-xs rounded-xl transition border border-blue-500/50 flex items-center gap-1.5 shadow active:scale-95">
+        <i id="locateBtnIcon" class="fa-solid fa-location-crosshairs text-blue-200"></i>
       </button>
 
       <button onclick="filterLeg('all')" class="hidden sm:flex px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl transition border border-slate-700 items-center gap-1.5 shadow">
@@ -837,12 +836,7 @@
     }
 
     function resetLocateBtn() {
-      document.getElementById('locateBtnText').innerText =
-        locationInterval === 0
-          ? locMsg('Tracking Off', '追踪已关闭')
-          : userLocation
-            ? locMsg('Located', '已定位')
-            : locMsg('Locate Me', '定位我的位置');
+      document.getElementById('locateBtnIcon').classList.remove('animate-spin');
     }
 
     function renderUserLocationUI(center) {
@@ -928,7 +922,7 @@
     }
 
     function requestUserLocation() {
-      const btnText = document.getElementById('locateBtnText');
+      const locateIcon = document.getElementById('locateBtnIcon');
 
       if (!('geolocation' in navigator)) {
         showLocationError(locMsg('Geolocation is not supported by this browser.', '您的浏览器不支持地理定位服务。'));
@@ -958,7 +952,7 @@
         return;
       }
 
-      btnText.innerText = locMsg('Locating...', '定位中...');
+      locateIcon.classList.add('animate-spin');
 
       // maximumAge lets an existing recent fix be shown instantly while the
       // watch keeps refining it; enableHighAccuracy still asks the GPS to
