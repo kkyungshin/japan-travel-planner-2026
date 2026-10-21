@@ -1892,6 +1892,7 @@
       const allPoints = [];
 
       for (const day of daysData) {
+        if (day.id === 1) continue;
         allPoints.push(...day.stops.map(s => [s.lat, s.lng]));
 
         day.stops.forEach((stop) => {
@@ -1919,6 +1920,7 @@
       }
 
       if (allPoints.length > 0) map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
+      setTimeout(() => map.invalidateSize(), 100);
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Transit Overview' : '10天公共交通全景';
