@@ -415,6 +415,7 @@
     let lastLocationApplied = 0;
     let pendingCoords = null;
     let flushTimer = null;
+    let locationPollTimer = null;
     let firstLocationFix = true;
     let locationWatchStartedAt = 0;
     let todayState = { dayId: null, nextIdx: null };
@@ -971,6 +972,73 @@
       firstLocationFix = false;
     }
 
+    function handleGeoPosition(position) {
+      if (locationInterval === 0) return;
+      // Hold the newest reading and apply it as soon as the interval
+      // allows, so a throttled fix is deferred rather than dropped.
+      pendingCoords = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+      flushPendingPosition();
+    }
+
+    function handleGeoFailure(error) {
+      console.error('Geolocation failed:', error);
+
+      if (error.code === error.PERMISSION_DENIED) {
+        if (locationWatcher !== null) {
+          navigator.geolocation.clearWatch(locationWatcher);
+          locationWatcher = null;
+        }
+        stopLocationPolling();
+        showLocationError(locMsg(
+          'Location permission denied.',
+          '定位权限被拒绝。请在浏览器设置中开启权限。'
+        ));
+        return;
+      }
+
+      let errMsg = locMsg('Unable to fetch location. Please try again.', '无法获取定位，请重试。');
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        errMsg = locMsg('Location unavailable. Turn on GPS.', '无法获取位置，请开启手机 GPS。');
+      } else if (error.code === error.TIMEOUT) {
+        errMsg = locMsg('Waiting for a GPS signal...', '正在等待 GPS 信号...');
+      }
+
+      // Transient errors leave the watcher running - it self-heals on the
+      // next fix, and renderUserLocationUI clears the error styling.
+      if (!userLocation) showLocationError(errMsg);
+    }
+
+    // watchPosition only fires when the OS decides the position changed, so
+    // a simulator edit (or a browser that caches fixes) can stall updates.
+    // Actively re-read on the configured interval as well, so the Settings
+    // frequency always drives refresh rate.
+    function stopLocationPolling() {
+      if (locationPollTimer) {
+        clearInterval(locationPollTimer);
+        locationPollTimer = null;
+      }
+    }
+
+    function startLocationPolling() {
+      stopLocationPolling();
+      if (locationInterval === 0 || locationWatcher === null) return;
+      locationPollTimer = setInterval(() => {
+        if (locationInterval === 0 || locationWatcher === null) {
+          stopLocationPolling();
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          handleGeoPosition,
+          handleGeoFailure,
+          { enableHighAccuracy: true, timeout: Math.max(5000, locationInterval * 1000), maximumAge: 0 }
+        );
+      }, locationInterval * 1000);
+    }
+
     function requestUserLocation() {
       const locateIcon = document.getElementById('locateBtnIcon');
 
@@ -1011,50 +1079,12 @@
       firstLocationFix = true;
       locationWatchStartedAt = Date.now();
 
-      function handlePosition(position) {
-        if (locationInterval === 0) return;
-        // Hold the newest reading and apply it as soon as the interval
-        // allows, so a throttled fix is deferred rather than dropped.
-        pendingCoords = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy
-        };
-        flushPendingPosition();
-      }
-
-      function handleFailure(error) {
-        console.error('Geolocation failed:', error);
-
-        if (error.code === error.PERMISSION_DENIED) {
-          if (locationWatcher !== null) {
-            navigator.geolocation.clearWatch(locationWatcher);
-            locationWatcher = null;
-          }
-          showLocationError(locMsg(
-            'Location permission denied.',
-            '定位权限被拒绝。请在浏览器设置中开启权限。'
-          ));
-          return;
-        }
-
-        let errMsg = locMsg('Unable to fetch location. Please try again.', '无法获取定位，请重试。');
-        if (error.code === error.POSITION_UNAVAILABLE) {
-          errMsg = locMsg('Location unavailable. Turn on GPS.', '无法获取位置，请开启手机 GPS。');
-        } else if (error.code === error.TIMEOUT) {
-          errMsg = locMsg('Waiting for a GPS signal...', '正在等待 GPS 信号...');
-        }
-
-        // Transient errors leave the watcher running - it self-heals on the
-        // next fix, and renderUserLocationUI clears the error styling.
-        if (!userLocation) showLocationError(errMsg);
-      }
-
       locationWatcher = navigator.geolocation.watchPosition(
-        handlePosition,
-        handleFailure,
+        handleGeoPosition,
+        handleGeoFailure,
         watchOptions
       );
+      startLocationPolling();
     }
 
     const THEME_KEY = 'plannerTheme';
@@ -1146,6 +1176,7 @@
         stopLocationTracking();
       } else {
         resetLocateBtn();
+        if (locationWatcher !== null) startLocationPolling();
       }
     }
 
@@ -1154,6 +1185,7 @@
         navigator.geolocation.clearWatch(locationWatcher);
         locationWatcher = null;
       }
+      stopLocationPolling();
       if (userMarker) {
         map.removeLayer(userMarker);
         userMarker = null;
