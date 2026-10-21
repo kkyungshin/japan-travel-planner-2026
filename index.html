@@ -1142,6 +1142,9 @@
     };
     const VALHALLA_ROUTE_URL = 'https://valhalla1.openstreetmap.de/route';
     const TRANSIT_API_URL = 'https://api.transit.ls8h.com/api/v1/guidance/plan';
+    // Klook coach-tour days: hops are by tour bus, so no public-transport
+    // lookup applies — draw direct connectors instead of hitting the API.
+    const TOUR_DAYS = new Set([4, 5]);
 
     // Public routing services rate-limit bursts and sometimes hang. Walking and
     // coach legs use Valhalla with OSRM as backup; longer hops use the public
@@ -1385,12 +1388,16 @@
     function segmentMode(a, b, day) {
       const distance = parseFloat(calculateHaversineDistance(a.lat, a.lng, b.lat, b.lng));
       if (distance <= WALK_MAX_KM) return 'walking';
+      // Tour days (4, 5) travel by tour bus/car; Day 7's hops are a mix of
+      // airport bus and short train rides whose exact paths clutter the map —
+      // draw direct connectors for all long hops instead of hitting the API.
+      if (TOUR_DAYS.has(day?.id) || day?.id === 7) return 'tour';
       return 'transit';
     }
 
     async function fetchRouteForStops(inputStops, day) {
       const stops = compactRouteStops(inputStops);
-      if (stops.length < 2) return { segments: [], transitLegs: 0, coachLegs: 0, modes: [] };
+      if (stops.length < 2) return { segments: [], transitLegs: 0, tourLegs: 0, modes: [] };
 
       // Merge consecutive walking or coach hops into one request. Transit hops
       // stay separate because each one has its own departure time and route.
@@ -1418,6 +1425,9 @@
           }
           return { mode: 'transit', path: directRoute(group.coords), transitLegs: 0, fallback: true, modes: [] };
         }
+        if (group.mode === 'tour') {
+          return { mode: 'tour', path: directRoute(group.coords), transitLegs: 0, modes: [] };
+        }
         const path = await withRouteSlot(() => fetchOSRMRoute(group.coords, group.mode));
         return { mode: group.mode, path, transitLegs: 0, modes: [] };
       }));
@@ -1426,7 +1436,7 @@
       return {
         segments: results.filter(result => result.path.length > 1),
         transitLegs: results.reduce((sum, result) => sum + (result.transitLegs || 0), 0),
-        coachLegs: results.filter(result => result.mode === 'coach').length,
+        tourLegs: results.filter(result => result.mode === 'tour').length,
         modes
       };
     }
@@ -1670,7 +1680,8 @@
     }
 
     function routeModeLabel(result, day) {
-      if (result.transitLegs > 0) return currentLang === 'en' ? 'walking + JR/train' : '步行 + JR/铁路';
+      if (TOUR_DAYS.has(day.id)) return currentLang === 'en' ? 'walking + tour bus' : '步行 + 旅游巴士';
+      if (result.transitLegs > 0 || day.id === 7) return currentLang === 'en' ? 'walking + JR/train' : '步行 + JR/铁路';
       return currentLang === 'en' ? 'walking route' : '步行路线';
     }
 
@@ -1678,11 +1689,12 @@
       segments.forEach(segment => {
         const style = {
           color,
-          weight: 5,
+          weight: segment.mode === 'tour' ? 4 : 5,
           opacity: segment.mode === 'walking' ? 0.82 : 0.92,
           lineCap: 'round',
           lineJoin: 'round'
         };
+        if (segment.mode === 'tour') style.dashArray = '9, 7';
         if (segment.fallback) {
           style.dashArray = '4, 8';
           style.opacity = 0.55;
@@ -1712,7 +1724,9 @@
         slide.className = 'day-carousel-slide min-w-full px-10 pt-2.5 pb-5 cursor-pointer';
         slide.dataset.dayId = day.id;
         const dateLabel = (day.date || '').split(' / ')[0];
-        const modeLabel = currentLang === 'en' ? 'Walk + JR/train' : '步行 + JR/铁路';
+        const modeLabel = TOUR_DAYS.has(day.id)
+          ? (currentLang === 'en' ? 'Walk + tour bus' : '步行 + 旅游巴士')
+          : (currentLang === 'en' ? 'Walk + JR/train' : '步行 + JR/铁路');
         slide.innerHTML = `
           <div class="flex items-center gap-2.5">
             <span class="w-1.5 h-10 rounded-full flex-shrink-0" style="background-color: ${day.color}"></span>
@@ -1893,7 +1907,7 @@
         [...toAirport.segments, ...fromAirport.segments].forEach(segment => fitPoints.push(...segment.path));
         summary = {
           transitLegs: toAirport.transitLegs + fromAirport.transitLegs,
-          coachLegs: 0,
+          tourLegs: 0,
           modes: [...new Set([...toAirport.modes, ...fromAirport.modes])]
         };
       } else {
