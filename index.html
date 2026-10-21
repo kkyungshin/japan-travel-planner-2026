@@ -1940,7 +1940,7 @@
           map.invalidateSize();
           if (lastDayBounds) map.fitBounds(lastDayBounds, { padding: [40, 40] });
           if (selectedDayId !== null) syncDayCarousel(selectedDayId, false);
-        }, 80);
+        }, 200);
       } else {
         mapWrapper.classList.add('hidden');
         sidebar.classList.remove('hidden');
