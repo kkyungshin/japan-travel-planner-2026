@@ -1276,7 +1276,7 @@
         date,
         time,
         type: 'departure',
-        numItineraries: '2'
+        numItineraries: '4'
       });
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TRANSIT_FETCH_TIMEOUT_MS);
@@ -1284,6 +1284,11 @@
         const response = await fetch(`${TRANSIT_API_URL}?${params.toString()}`, { signal: controller.signal });
         if (!response.ok) return null;
         const data = await response.json();
+
+        // Build every candidate path, then keep the one whose polyline stays
+        // most direct to the destination — the planner sometimes returns a
+        // detouring itinerary first, which drags the drawn line far off-route.
+        const candidates = [];
         for (const option of data.options || []) {
           const path = [];
           (option.map?.segments || []).forEach(segment => {
@@ -1296,20 +1301,35 @@
           if (path.length < 2) continue;
 
           const transitLegs = (option.journey?.legs || []).filter(leg => leg.kind === 'transit');
-          const result = {
+          const last = path[path.length - 1];
+          const detour = calculateHaversineDistance(last[0], last[1], toStop.lat, toStop.lng);
+          const duration = typeof option.duration === 'number' ? option.duration : Infinity;
+          candidates.push({
             path,
             transitLegs: transitLegs.length,
             modes: [...new Set(transitLegs.map(leg => leg.mode).filter(Boolean))],
-            routes: [...new Set(transitLegs.map(leg => leg.routeName).filter(Boolean))].slice(0, 3)
-          };
-          transitCache[cacheKey] = result;
+            routes: [...new Set(transitLegs.map(leg => leg.routeName).filter(Boolean))].slice(0, 3),
+            _score: detour,
+            _duration: duration
+          });
+        }
+        candidates.sort((a, b) => a._score - b._score);
+        const best = candidates[0];
+        if (!best) {
+          transitCache[cacheKey] = null;
           persistRouteCache();
-          return result;
-         }
-         transitCache[cacheKey] = null;
-         persistRouteCache();
-         return null;
-       } catch (e) {
+          return null;
+        }
+        const result = {
+          path: best.path,
+          transitLegs: best.transitLegs,
+          modes: best.modes,
+          routes: best.routes
+        };
+        transitCache[cacheKey] = result;
+        persistRouteCache();
+        return result;
+      } catch (e) {
          transitCache[cacheKey] = null;
          persistRouteCache();
          return null;
