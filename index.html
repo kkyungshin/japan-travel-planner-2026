@@ -1135,7 +1135,7 @@
     // then fall back to a dashed connector rather than leaving the map stuck.
     const ROUTE_MAX_CONCURRENT = 4;
     const ROUTE_FETCH_TIMEOUT_MS = 8000;
-    const TRANSIT_FETCH_TIMEOUT_MS = 30000;
+    const TRANSIT_FETCH_TIMEOUT_MS = 15000;
     let routeDeadline = 0;
     let routeActive = 0;
     const routeQueue = [];
@@ -1706,7 +1706,6 @@
               <div class="text-[13px] font-bold text-slate-100 truncate">${day.title[currentLang]}</div>
               <div class="text-[10px] text-slate-400">${day.stops.length} ${currentLang === 'en' ? 'stops' : '个行程点'} • ${modeLabel}</div>
             </div>
-            <i class="fa-solid fa-arrow-right text-[10px] text-slate-500 flex-shrink-0"></i>
           </div>
         `;
         slide.onclick = () => selectDay(day.id);
@@ -1812,7 +1811,7 @@
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Finding Day ${day.id} routes...` : `正在查找第 ${day.id} 天路线...`;
 
       currentLayerGroup.clearLayers();
-      beginRouteBudget(60000);
+      beginRouteBudget(30000);
       const markerPoints = spreadDuplicateCoords(day.stops);
 
       markerPoints.forEach((stop, idx) => {
