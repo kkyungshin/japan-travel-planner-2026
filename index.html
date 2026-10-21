@@ -1246,7 +1246,7 @@
       if (!date || !time) return null;
 
       const cacheKey = `transit:${date}:${time}:${fromStop.lat},${fromStop.lng};${toStop.lat},${toStop.lng}`;
-      if (transitCache[cacheKey]) return transitCache[cacheKey];
+      if (Object.prototype.hasOwnProperty.call(transitCache, cacheKey)) return transitCache[cacheKey];
 
       const params = new URLSearchParams({
         from: `geo:${fromStop.lat},${fromStop.lng}`,
@@ -1283,10 +1283,14 @@
           transitCache[cacheKey] = result;
           persistRouteCache();
           return result;
-        }
-        return null;
-      } catch (e) {
-        return null;
+         }
+         transitCache[cacheKey] = null;
+         persistRouteCache();
+         return null;
+       } catch (e) {
+         transitCache[cacheKey] = null;
+         persistRouteCache();
+         return null;
       } finally {
         clearTimeout(timer);
       }
