@@ -214,6 +214,11 @@
       border-color: #e2e8f0 !important;
     }
     html[data-theme="light"] #settingsModal > div { box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35); }
+    /* Mobile map day bar sits at the top of the map - push Leaflet's zoom
+       control below it so the +/- buttons aren't covered by D1-D10. */
+    @media (max-width: 767px) {
+      .leaflet-top.leaflet-right { top: 44px; }
+    }
   </style>
 
   <script>
@@ -257,7 +262,7 @@
       </div>
 
       <!-- Locate Me Button -->
-      <button id="locateBtn" onclick="requestUserLocation()" title="Locate Me" class="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-blue-600 text-xs rounded-xl transition border border-slate-300 flex items-center gap-1.5 shadow active:scale-95">
+      <button id="locateBtn" onclick="requestUserLocation()" title="Locate Me" class="w-8 h-8 bg-white hover:bg-slate-100 text-blue-600 text-xs rounded-xl transition border border-slate-300 flex items-center justify-center shadow active:scale-95">
         <i id="locateBtnIcon" class="fa-solid fa-location-crosshairs text-blue-600"></i>
       </button>
 
