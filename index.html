@@ -316,7 +316,7 @@
       <div id="map" class="w-full h-full"></div>
       
       <!-- Floating Map Legend Overlay -->
-      <div class="absolute bottom-48 md:bottom-32 left-4 right-4 md:right-auto z-[500] bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-2xl text-xs text-slate-300 max-w-sm pointer-events-none">
+      <div class="absolute bottom-[calc(8rem+var(--sab))] md:bottom-24 left-4 right-4 md:right-auto z-[500] bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-2xl text-xs text-slate-300 max-w-sm pointer-events-none">
         <div class="flex items-center gap-2 mb-0.5">
           <span id="routeStatusDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="mapLegendTitle" class="font-bold text-slate-100">10-Day Route Overview</span>
@@ -609,7 +609,11 @@
       routeCacheSaveTimer = setTimeout(() => {
         try {
           localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(routeCache));
-          localStorage.setItem(TRANSIT_CACHE_KEY, JSON.stringify(transitCache));
+          const persistedTransit = {};
+          for (const key in transitCache) {
+            if (transitCache[key]) persistedTransit[key] = transitCache[key];
+          }
+          localStorage.setItem(TRANSIT_CACHE_KEY, JSON.stringify(persistedTransit));
         } catch (e) {
           try {
             localStorage.removeItem(ROUTE_CACHE_KEY);
@@ -1135,7 +1139,7 @@
     // then fall back to a dashed connector rather than leaving the map stuck.
     const ROUTE_MAX_CONCURRENT = 4;
     const ROUTE_FETCH_TIMEOUT_MS = 8000;
-    const TRANSIT_FETCH_TIMEOUT_MS = 15000;
+    const TRANSIT_FETCH_TIMEOUT_MS = 8000;
     let routeDeadline = 0;
     let routeActive = 0;
     const routeQueue = [];
@@ -1816,7 +1820,7 @@
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Finding Day ${day.id} routes...` : `正在查找第 ${day.id} 天路线...`;
 
       currentLayerGroup.clearLayers();
-      beginRouteBudget(30000);
+      beginRouteBudget(15000);
       const markerPoints = spreadDuplicateCoords(day.stops);
 
       markerPoints.forEach((stop, idx) => {
@@ -1844,6 +1848,20 @@
         `);
       });
 
+      const schematicCoords = (day.id === 7 ? day.stops.slice(3) : day.stops)
+        .map(s => [s.lat, s.lng]);
+
+      // Draw an instant schematic so the map is usable right away; exact
+      // routes replace it when they resolve.
+      let schematicLayer = null;
+      if (schematicCoords.length > 1) {
+        schematicLayer = L.polyline(schematicCoords, {
+          color: day.color, weight: 3, opacity: 0.5, dashArray: '4, 8'
+        }).addTo(currentLayerGroup);
+        lastDayBounds = L.latLngBounds(schematicCoords);
+        map.fitBounds(lastDayBounds, { padding: [40, 40] });
+      }
+
       const fitPoints = [];
       let summary;
 
@@ -1856,6 +1874,7 @@
         ]);
         if (renderToken !== dayRenderToken) return;
 
+        if (schematicLayer) currentLayerGroup.removeLayer(schematicLayer);
         L.polyline([cts, [38.8, 137.8], itm], {
           color: '#ec4899', weight: 3, dashArray: '6, 10', opacity: 0.85
         }).addTo(currentLayerGroup);
@@ -1870,6 +1889,7 @@
       } else {
         summary = await fetchRouteForStops(day.stops, day);
         if (renderToken !== dayRenderToken) return;
+        if (schematicLayer) currentLayerGroup.removeLayer(schematicLayer);
         drawRouteSegments(summary.segments, day.color);
         summary.segments.forEach(segment => fitPoints.push(...segment.path));
       }
