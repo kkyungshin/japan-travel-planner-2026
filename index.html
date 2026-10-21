@@ -218,11 +218,6 @@
         <i class="fa-solid fa-globe text-red-400"></i> <span id="ui-overview-btn">Overview Map</span>
       </button>
 
-      <!-- Theme Toggle -->
-      <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle dark mode" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition border border-slate-700 flex items-center justify-center shadow active:scale-95">
-        <i id="themeToggleIcon" class="fa-solid fa-moon"></i>
-      </button>
-
       <!-- Settings -->
       <button id="settingsBtn" onclick="openSettings()" title="Settings" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition border border-slate-700 flex items-center justify-center shadow active:scale-95">
         <i class="fa-solid fa-gear"></i>
@@ -571,7 +566,7 @@
     let currentLayerGroup = L.layerGroup().addTo(map);
     let selectedDayId = null;
     const routeCache = {};
-    const ROUTE_CACHE_KEY = 'plannerRouteCache_v1';
+    const ROUTE_CACHE_KEY = 'plannerRouteCache_v2';
     try {
       const savedRoutes = JSON.parse(localStorage.getItem(ROUTE_CACHE_KEY) || '{}');
       if (savedRoutes && typeof savedRoutes === 'object') Object.assign(routeCache, savedRoutes);
@@ -980,19 +975,11 @@
       if (persist) {
         try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
       }
-      const icon = document.getElementById('themeToggleIcon');
-      if (icon) icon.className = next === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-      const toggle = document.getElementById('themeToggleBtn');
-      if (toggle) toggle.title = next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
       syncSettingsUI();
     }
 
     function setTheme(theme) {
       applyTheme(theme, true);
-    }
-
-    function toggleTheme() {
-      applyTheme(getTheme() === 'dark' ? 'light' : 'dark', true);
     }
 
     function loadSettings() {
@@ -1099,7 +1086,7 @@
     }
 
     // Short hops are walked; anything longer is driven. Keeps the drawn
-    // line on the street the traveller actually uses: OSRM's driving profile
+    // line on the street the traveller actually uses: a driving profile
     // detours around one-ways and pedestrian zones inside cities.
     const WALK_MAX_KM = 2.5;
     const ROUTE_SERVERS = {
@@ -1107,11 +1094,13 @@
                 'https://router.project-osrm.org/route/v1/driving/'],
       driving: ['https://router.project-osrm.org/route/v1/driving/']
     };
+    const VALHALLA_ROUTE_URL = 'https://valhalla1.openstreetmap.de/route';
 
-    // The public OSRM demo servers rate-limit bursts (HTTP 429) and sometimes
-    // hang. Cap each request and give each map render a total routing budget;
-    // anything left after that is drawn as a direct line instead of stalling.
-    const ROUTE_MAX_CONCURRENT = 2;
+    // Public routing services rate-limit bursts and sometimes hang. Valhalla is
+    // the primary engine; OSRM is the backup. Cap each request and give each
+    // map render a total budget, then fall back to a direct line rather than
+    // leaving the map stuck forever.
+    const ROUTE_MAX_CONCURRENT = 4;
     const ROUTE_FETCH_TIMEOUT_MS = 8000;
     let routeDeadline = 0;
     let routeActive = 0;
@@ -1125,6 +1114,66 @@
       return coordinates.map(c => [c[1], c[0]]);
     }
     const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function decodePolyline6(encoded) {
+      let index = 0, lat = 0, lng = 0;
+      const points = [];
+      while (index < encoded.length) {
+        let result = 0, shift = 0, byte;
+        do {
+          byte = encoded.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+        result = 0; shift = 0;
+        do {
+          byte = encoded.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+        points.push([
+          Math.round((lat / 1000000) * 100000) / 100000,
+          Math.round((lng / 1000000) * 100000) / 100000
+        ]);
+      }
+      return points;
+    }
+
+    async function fetchValhallaRoute(coordinates, mode) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ROUTE_FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetch(VALHALLA_ROUTE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            locations: coordinates.map(c => ({ lon: c[0], lat: c[1] })),
+            costing: mode === 'walking' ? 'pedestrian' : 'auto'
+          }),
+          signal: controller.signal
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const legs = data.trip && data.trip.legs;
+        if (!legs || !legs.length) return null;
+        const path = [];
+        for (const leg of legs) {
+          const points = decodePolyline6(leg.shape || '');
+          if (!points.length) continue;
+          if (path.length) points.shift();
+          path.push(...points);
+        }
+        return path.length > 1 ? path : null;
+      } catch (e) {
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
 
     async function withRouteSlot(task) {
       if (routeActive >= ROUTE_MAX_CONCURRENT) {
@@ -1144,6 +1193,17 @@
       const coordString = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
       const cacheKey = `${mode}:${coordString}`;
       if (routeCache[cacheKey]) return routeCache[cacheKey];
+      if (routeDeadline && Date.now() > routeDeadline) return directRoute(coordinates);
+
+      const valhallaCoords = await withRouteSlot(async () => {
+        await sleep(120);
+        return fetchValhallaRoute(coordinates, mode);
+      });
+      if (valhallaCoords) {
+        routeCache[cacheKey] = valhallaCoords;
+        persistRouteCache();
+        return valhallaCoords;
+      }
       if (routeDeadline && Date.now() > routeDeadline) return directRoute(coordinates);
 
       for (const base of ROUTE_SERVERS[mode] || ROUTE_SERVERS.driving) {
@@ -1524,12 +1584,12 @@
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = `Day ${day.id}: ${day.title[currentLang]}`;
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • OSRM walking & driving routes` : `${day.stops.length} 个行程点 • 实际步行与行车路线`;
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • walking & driving routes` : `${day.stops.length} 个行程点 • 实际步行与行车路线`;
     }
 
     async function renderAllRoutesOnMap() {
       currentLayerGroup.clearLayers();
-      beginRouteBudget(25000);
+      beginRouteBudget(30000);
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? 'Loading Overview Routes...' : '加载全景路线中...';
 
@@ -1551,19 +1611,19 @@
 
         if (day.id === 7) {
           L.polyline([[42.7752, 141.6923], [38.8, 137.8], [34.7855, 135.4382]], { color: '#ec4899', weight: 2, dashArray: '5, 8' }).addTo(currentLayerGroup);
-          const kobePath = await fetchRouteForStops(day.stops.slice(3));
-          L.polyline(kobePath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
-        } else {
-          const roadPath = await fetchRouteForStops(day.stops);
-          L.polyline(roadPath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
         }
+
+        const overviewStops = day.id === 7 ? day.stops.slice(3) : day.stops;
+        const overviewCoords = overviewStops.map(s => [s.lng, s.lat]);
+        const roadPath = await fetchOSRMRoute(overviewCoords, 'driving');
+        L.polyline(roadPath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
       }
 
       if (allPoints.length > 0) map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Route Overview' : '10天全景行程路线';
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai • walking & driving routes' : '北海道与关西全景 • 步行与行车路线';
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai • main-road overview; select a day for walking routes' : '北海道与关西全景 • 主路线概览；选择日期查看步行路线';
     }
 
     function toggleMobileMap() {
