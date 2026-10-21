@@ -113,6 +113,18 @@
       border-radius: 0.5rem;
     }
 
+    .day-carousel-track {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      overscroll-behavior-x: contain;
+      scroll-snap-type: x mandatory;
+    }
+    .day-carousel-track::-webkit-scrollbar { display: none; }
+    .day-carousel-slide {
+      scroll-snap-align: center;
+      scroll-snap-stop: always;
+    }
+
     /* Light theme: the markup keeps its dark defaults, so this layer
        remaps the shared Tailwind palette without duplicating every card. */
     html[data-theme="light"] body { background-color: #f1f5f9; color: #0f172a; }
@@ -304,12 +316,28 @@
       <div id="map" class="w-full h-full"></div>
       
       <!-- Floating Map Legend Overlay -->
-      <div class="absolute bottom-20 md:bottom-4 left-4 right-4 md:right-auto z-[500] bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-2xl text-xs text-slate-300 max-w-sm pointer-events-none">
+      <div class="absolute bottom-48 md:bottom-32 left-4 right-4 md:right-auto z-[500] bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-2xl text-xs text-slate-300 max-w-sm pointer-events-none">
         <div class="flex items-center gap-2 mb-0.5">
           <span id="routeStatusDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="mapLegendTitle" class="font-bold text-slate-100">10-Day Route Overview</span>
         </div>
-        <p id="mapLegendSubtitle" class="text-slate-400 text-[11px]">Select a day card to highlight road paths & pins.</p>
+        <p id="mapLegendSubtitle" class="text-slate-400 text-[11px]">Select a day card to highlight its route and pins.</p>
+      </div>
+
+      <!-- Day carousel (shown after a day is selected) -->
+      <div id="dayCarousel" class="hidden absolute bottom-[calc(3.75rem+var(--sab))] md:bottom-0 left-0 right-0 z-[600] px-2 pb-[calc(0.625rem+var(--sab))] md:px-4 md:pb-4">
+        <div class="relative mx-auto max-w-xl bg-slate-900/95 backdrop-blur-md border border-slate-700/70 rounded-2xl shadow-2xl">
+          <button id="carouselPrev" onclick="moveDayCarousel(-1)" aria-label="Previous day" class="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-slate-950/80 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center justify-center active:scale-95 transition disabled:opacity-30 disabled:pointer-events-none">
+            <i class="fa-solid fa-chevron-left text-[11px]"></i>
+          </button>
+          <div id="dayCarouselTrack" class="day-carousel-track flex overflow-x-auto snap-x">
+            <!-- Slides rendered by JS -->
+          </div>
+          <button id="carouselNext" onclick="moveDayCarousel(1)" aria-label="Next day" class="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-slate-950/80 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center justify-center active:scale-95 transition disabled:opacity-30 disabled:pointer-events-none">
+            <i class="fa-solid fa-chevron-right text-[11px]"></i>
+          </button>
+          <div id="carouselDots" class="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-none"></div>
+        </div>
       </div>
     </div>
 
@@ -566,10 +594,14 @@
     let currentLayerGroup = L.layerGroup().addTo(map);
     let selectedDayId = null;
     const routeCache = {};
-    const ROUTE_CACHE_KEY = 'plannerRouteCache_v2';
+    const ROUTE_CACHE_KEY = 'plannerRouteCache_v3';
+    const transitCache = {};
+    const TRANSIT_CACHE_KEY = 'plannerTransitCache_v1';
     try {
       const savedRoutes = JSON.parse(localStorage.getItem(ROUTE_CACHE_KEY) || '{}');
       if (savedRoutes && typeof savedRoutes === 'object') Object.assign(routeCache, savedRoutes);
+      const savedTransit = JSON.parse(localStorage.getItem(TRANSIT_CACHE_KEY) || '{}');
+      if (savedTransit && typeof savedTransit === 'object') Object.assign(transitCache, savedTransit);
     } catch (e) {}
     let routeCacheSaveTimer = null;
     function persistRouteCache() {
@@ -577,8 +609,12 @@
       routeCacheSaveTimer = setTimeout(() => {
         try {
           localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(routeCache));
+          localStorage.setItem(TRANSIT_CACHE_KEY, JSON.stringify(transitCache));
         } catch (e) {
-          try { localStorage.removeItem(ROUTE_CACHE_KEY); } catch (_) {}
+          try {
+            localStorage.removeItem(ROUTE_CACHE_KEY);
+            localStorage.removeItem(TRANSIT_CACHE_KEY);
+          } catch (_) {}
         }
       }, 800);
     }
@@ -1085,23 +1121,21 @@
       resetLocateBtn();
     }
 
-    // Short hops are walked; anything longer is driven. Keeps the drawn
-    // line on the street the traveller actually uses: a driving profile
-    // detours around one-ways and pedestrian zones inside cities.
+    // Short hops are walked; anything longer uses public transport (JR/train).
     const WALK_MAX_KM = 2.5;
     const ROUTE_SERVERS = {
-      walking: ['https://routing.openstreetmap.de/routed-foot/route/v1/walking/',
-                'https://router.project-osrm.org/route/v1/driving/'],
-      driving: ['https://router.project-osrm.org/route/v1/driving/']
+      walking: ['https://routing.openstreetmap.de/routed-foot/route/v1/walking/']
     };
     const VALHALLA_ROUTE_URL = 'https://valhalla1.openstreetmap.de/route';
+    const TRANSIT_API_URL = 'https://api.transit.ls8h.com/api/v1/guidance/plan';
 
-    // Public routing services rate-limit bursts and sometimes hang. Valhalla is
-    // the primary engine; OSRM is the backup. Cap each request and give each
-    // map render a total budget, then fall back to a direct line rather than
-    // leaving the map stuck forever.
+    // Public routing services rate-limit bursts and sometimes hang. Walking and
+    // coach legs use Valhalla with OSRM as backup; longer hops use the public
+    // transport planner. Cap each request and give each render a total budget,
+    // then fall back to a dashed connector rather than leaving the map stuck.
     const ROUTE_MAX_CONCURRENT = 4;
     const ROUTE_FETCH_TIMEOUT_MS = 8000;
+    const TRANSIT_FETCH_TIMEOUT_MS = 30000;
     let routeDeadline = 0;
     let routeActive = 0;
     const routeQueue = [];
@@ -1152,7 +1186,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             locations: coordinates.map(c => ({ lon: c[0], lat: c[1] })),
-            costing: mode === 'walking' ? 'pedestrian' : 'auto'
+            costing: 'pedestrian'
           }),
           signal: controller.signal
         });
@@ -1175,6 +1209,89 @@
       }
     }
 
+    const MONTH_NUMBER = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+
+    function serviceDateForDay(day) {
+      const match = /^([A-Z][a-z]{2})\s+(\d{1,2}),\s+(\d{4})/.exec(day.date || '');
+      if (!match) return '';
+      const month = MONTH_NUMBER[match[1]];
+      if (!month) return '';
+      return `${match[3]}${String(month).padStart(2, '0')}${String(match[2]).padStart(2, '0')}`;
+    }
+
+    function parseStopTime(value) {
+      const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(String(value || '').trim());
+      if (!match) return '';
+      let hours = parseInt(match[1], 10);
+      const suffix = (match[3] || '').toUpperCase();
+      if (suffix === 'PM' && hours < 12) hours += 12;
+      if (suffix === 'AM' && hours === 12) hours = 0;
+      return `${String(hours).padStart(2, '0')}:${match[2]}`;
+    }
+
+    function compactRouteStops(stops) {
+      const compact = [];
+      stops.forEach(stop => {
+        const last = compact[compact.length - 1];
+        if (!last || calculateHaversineDistance(last.lat, last.lng, stop.lat, stop.lng) > 0.03) {
+          compact.push(stop);
+        }
+      });
+      return compact;
+    }
+
+    async function fetchTransitRoute(fromStop, toStop, day) {
+      const date = serviceDateForDay(day);
+      const time = parseStopTime(fromStop.time);
+      if (!date || !time) return null;
+
+      const cacheKey = `transit:${date}:${time}:${fromStop.lat},${fromStop.lng};${toStop.lat},${toStop.lng}`;
+      if (transitCache[cacheKey]) return transitCache[cacheKey];
+
+      const params = new URLSearchParams({
+        from: `geo:${fromStop.lat},${fromStop.lng}`,
+        to: `geo:${toStop.lat},${toStop.lng}`,
+        date,
+        time,
+        type: 'departure',
+        numItineraries: '2'
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TRANSIT_FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetch(`${TRANSIT_API_URL}?${params.toString()}`, { signal: controller.signal });
+        if (!response.ok) return null;
+        const data = await response.json();
+        for (const option of data.options || []) {
+          const path = [];
+          (option.map?.segments || []).forEach(segment => {
+            (segment.polyline || []).forEach(point => {
+              const next = [point.lat, point.lon];
+              const last = path[path.length - 1];
+              if (!last || last[0] !== next[0] || last[1] !== next[1]) path.push(next);
+            });
+          });
+          if (path.length < 2) continue;
+
+          const transitLegs = (option.journey?.legs || []).filter(leg => leg.kind === 'transit');
+          const result = {
+            path,
+            transitLegs: transitLegs.length,
+            modes: [...new Set(transitLegs.map(leg => leg.mode).filter(Boolean))],
+            routes: [...new Set(transitLegs.map(leg => leg.routeName).filter(Boolean))].slice(0, 3)
+          };
+          transitCache[cacheKey] = result;
+          persistRouteCache();
+          return result;
+        }
+        return null;
+      } catch (e) {
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     async function withRouteSlot(task) {
       if (routeActive >= ROUTE_MAX_CONCURRENT) {
         await new Promise(resolve => routeQueue.push(resolve));
@@ -1189,7 +1306,7 @@
       }
     }
 
-    async function fetchOSRMRoute(coordinates, mode = 'driving') {
+    async function fetchOSRMRoute(coordinates, mode = 'walking') {
       const coordString = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
       const cacheKey = `${mode}:${coordString}`;
       if (routeCache[cacheKey]) return routeCache[cacheKey];
@@ -1206,7 +1323,7 @@
       }
       if (routeDeadline && Date.now() > routeDeadline) return directRoute(coordinates);
 
-      for (const base of ROUTE_SERVERS[mode] || ROUTE_SERVERS.driving) {
+      for (const base of ROUTE_SERVERS[mode] || ROUTE_SERVERS.walking) {
         for (let attempt = 0; attempt < 2; attempt++) {
           if (routeDeadline && Date.now() > routeDeadline) return directRoute(coordinates);
           let data = null;
@@ -1247,38 +1364,53 @@
       return directRoute(coordinates);
     }
 
-    function segmentMode(a, b) {
-      return parseFloat(calculateHaversineDistance(a.lat, a.lng, b.lat, b.lng)) <= WALK_MAX_KM
-        ? 'walking'
-        : 'driving';
+    function segmentMode(a, b, day) {
+      const distance = parseFloat(calculateHaversineDistance(a.lat, a.lng, b.lat, b.lng));
+      if (distance <= WALK_MAX_KM) return 'walking';
+      return 'transit';
     }
 
-    async function fetchRouteForStops(stops) {
-      if (stops.length < 2) return stops.map(s => [s.lat, s.lng]);
+    async function fetchRouteForStops(inputStops, day) {
+      const stops = compactRouteStops(inputStops);
+      if (stops.length < 2) return { segments: [], transitLegs: 0, coachLegs: 0, modes: [] };
 
-      // Merge consecutive hops that use the same mode so a walking chain is
-      // one request, not one per stop pair.
+      // Merge consecutive walking or coach hops into one request. Transit hops
+      // stay separate because each one has its own departure time and route.
       const groups = [];
       for (let i = 0; i < stops.length - 1; i++) {
-        const mode = segmentMode(stops[i], stops[i + 1]);
+        const mode = segmentMode(stops[i], stops[i + 1], day);
         const last = groups[groups.length - 1];
-        if (last && last.mode === mode) {
+        if (last && last.mode === mode && mode !== 'transit') {
+          last.stops.push(stops[i + 1]);
           last.coords.push([stops[i + 1].lng, stops[i + 1].lat]);
         } else {
           groups.push({
             mode,
+            stops: [stops[i], stops[i + 1]],
             coords: [[stops[i].lng, stops[i].lat], [stops[i + 1].lng, stops[i + 1].lat]]
           });
         }
       }
 
-      const paths = await Promise.all(groups.map(g => fetchOSRMRoute(g.coords, g.mode)));
-      const line = [];
-      paths.forEach(path => {
-        if (line.length && path.length) path = path.slice(1);
-        line.push(...path);
-      });
-      return line;
+      const results = await Promise.all(groups.map(async group => {
+        if (group.mode === 'transit') {
+          const transit = await withRouteSlot(() => fetchTransitRoute(group.stops[0], group.stops[1], day));
+          if (transit) {
+            return { mode: 'transit', path: transit.path, transitLegs: transit.transitLegs, modes: transit.modes };
+          }
+          return { mode: 'transit', path: directRoute(group.coords), transitLegs: 0, fallback: true, modes: [] };
+        }
+        const path = await withRouteSlot(() => fetchOSRMRoute(group.coords, group.mode));
+        return { mode: group.mode, path, transitLegs: 0, modes: [] };
+      }));
+
+      const modes = [...new Set(results.flatMap(result => result.modes || []))];
+      return {
+        segments: results.filter(result => result.path.length > 1),
+        transitLegs: results.reduce((sum, result) => sum + (result.transitLegs || 0), 0),
+        coachLegs: results.filter(result => result.mode === 'coach').length,
+        modes
+      };
     }
 
     const KIT_TEXT = {
@@ -1350,6 +1482,7 @@
       syncSettingsUI();
 
       updateMobileMapButtonText();
+      if (dayCarouselBuiltLang !== currentLang) buildDayCarousel();
       
       const currentFilter = getCurrentFilter();
       renderItinerary(currentFilter);
@@ -1506,6 +1639,7 @@
       if (leg === 'all') {
         selectedDayId = null;
         renderItinerary('all');
+        updateDayCarouselVisibility();
         renderAllRoutesOnMap();
       } else {
         const firstDay = daysData.find(d => d.leg === leg);
@@ -1517,10 +1651,151 @@
       }
     }
 
+    function routeModeLabel(result, day) {
+      if (result.transitLegs > 0) return currentLang === 'en' ? 'walking + JR/train' : '步行 + JR/铁路';
+      return currentLang === 'en' ? 'walking route' : '步行路线';
+    }
+
+    function drawRouteSegments(segments, color) {
+      segments.forEach(segment => {
+        const style = {
+          color,
+          weight: 5,
+          opacity: segment.mode === 'walking' ? 0.82 : 0.92,
+          lineCap: 'round',
+          lineJoin: 'round'
+        };
+        if (segment.fallback) {
+          style.dashArray = '4, 8';
+          style.opacity = 0.55;
+        }
+        L.polyline(segment.path, style).addTo(currentLayerGroup);
+      });
+    }
+
+    let dayCarouselBuiltLang = null;
+    let carouselScrollTimer = null;
+    let carouselProgrammatic = false;
+    let carouselProgrammaticTimer = null;
+    let carouselEventsBound = false;
+    let dayRenderToken = 0;
+    let lastDayBounds = null;
+
+    function buildDayCarousel() {
+      const track = document.getElementById('dayCarouselTrack');
+      const dots = document.getElementById('carouselDots');
+      if (!track || !dots) return;
+
+      track.innerHTML = '';
+      dots.innerHTML = '';
+      daysData.forEach((day, index) => {
+        const slide = document.createElement('div');
+        slide.className = 'day-carousel-slide min-w-full px-10 pt-2.5 pb-5 cursor-pointer';
+        slide.dataset.dayId = day.id;
+        const dateLabel = (day.date || '').split(' / ')[0];
+        const modeLabel = currentLang === 'en' ? 'Walk + JR/train' : '步行 + JR/铁路';
+        slide.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <span class="w-1.5 h-10 rounded-full flex-shrink-0" style="background-color: ${day.color}"></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                <span class="font-bold" style="color: ${day.color}">DAY ${day.id}</span>
+                <span>•</span>
+                <span class="truncate">${dateLabel}</span>
+              </div>
+              <div class="text-[13px] font-bold text-slate-100 truncate">${day.title[currentLang]}</div>
+              <div class="text-[10px] text-slate-400">${day.stops.length} ${currentLang === 'en' ? 'stops' : '个行程点'} • ${modeLabel}</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-[10px] text-slate-500 flex-shrink-0"></i>
+          </div>
+        `;
+        slide.onclick = () => selectDay(day.id);
+        track.appendChild(slide);
+
+        const dot = document.createElement('button');
+        dot.className = 'pointer-events-auto h-1.5 w-1.5 rounded-full bg-slate-600 transition-all';
+        dot.setAttribute('aria-label', `Day ${day.id}`);
+        dot.onclick = event => {
+          event.stopPropagation();
+          selectDay(day.id, { scroll: false });
+        };
+        dots.appendChild(dot);
+      });
+
+      dayCarouselBuiltLang = currentLang;
+      if (!carouselEventsBound) {
+        carouselEventsBound = true;
+        track.addEventListener('scroll', () => {
+          if (carouselProgrammatic) return;
+          clearTimeout(carouselScrollTimer);
+          carouselScrollTimer = setTimeout(() => {
+            const width = track.clientWidth || 1;
+            const index = Math.max(0, Math.min(daysData.length - 1, Math.round(track.scrollLeft / width)));
+            const day = daysData[index];
+            updateCarouselDots(index);
+            if (day && day.id !== selectedDayId) {
+              selectDay(day.id, { scroll: false, fromCarousel: true });
+            }
+          }, 130);
+        });
+      }
+    }
+
+    function updateCarouselDots(index) {
+      const dots = document.querySelectorAll('#carouselDots button');
+      dots.forEach((dot, i) => {
+        dot.className = i === index
+          ? 'pointer-events-auto h-1.5 w-4 rounded-full bg-red-500 transition-all'
+          : 'pointer-events-auto h-1.5 w-1.5 rounded-full bg-slate-600 transition-all';
+      });
+      const prev = document.getElementById('carouselPrev');
+      const next = document.getElementById('carouselNext');
+      if (prev) prev.disabled = index <= 0;
+      if (next) next.disabled = index >= daysData.length - 1;
+    }
+
+    function syncDayCarousel(dayId, smooth = false) {
+      const track = document.getElementById('dayCarouselTrack');
+      if (!track) return;
+      const index = daysData.findIndex(day => day.id === dayId);
+      if (index < 0) return;
+      updateCarouselDots(index);
+      const target = index * track.clientWidth;
+      if (Math.abs(track.scrollLeft - target) > 2) {
+        carouselProgrammatic = true;
+        track.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' });
+        clearTimeout(carouselProgrammaticTimer);
+        carouselProgrammaticTimer = setTimeout(() => { carouselProgrammatic = false; }, smooth ? 480 : 90);
+      }
+    }
+
+    function updateDayCarouselVisibility() {
+      const carousel = document.getElementById('dayCarousel');
+      if (!carousel) return;
+      carousel.classList.toggle('hidden', selectedDayId === null);
+      if (selectedDayId !== null) syncDayCarousel(selectedDayId, false);
+    }
+
+    function moveDayCarousel(direction) {
+      const index = daysData.findIndex(day => day.id === selectedDayId);
+      if (index < 0) return;
+      const target = daysData[index + direction];
+      if (target) selectDay(target.id, { scroll: false });
+    }
+
     async function selectDay(dayId, opts = {}) {
       const day = daysData.find(d => d.id === dayId);
       if (!day) return;
+      const renderToken = ++dayRenderToken;
       selectedDayId = dayId;
+      if (dayCarouselBuiltLang !== currentLang) buildDayCarousel();
+      const mobileStatus = document.getElementById('mobile-status-label');
+      if (mobileStatus) {
+        mobileStatus.innerText = currentLang === 'en'
+          ? `Day ${day.id} • ${day.stops.length} stops`
+          : `第 ${day.id} 天 • ${day.stops.length} 个行程点`;
+      }
+      updateDayCarouselVisibility();
 
       // if the active leg tab hides this day, switch to the tab that shows it
       let filter = getCurrentFilter();
@@ -1531,12 +1806,13 @@
 
       renderItinerary(filter);
       if (opts.scroll !== false) scrollToDayCard(dayId);
+      if (!opts.fromCarousel) syncDayCarousel(dayId, opts.scroll !== false);
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
-      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Calculating Day ${day.id}...` : `正在计算第 ${day.id} 天路线...`;
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Finding Day ${day.id} routes...` : `正在查找第 ${day.id} 天路线...`;
 
       currentLayerGroup.clearLayers();
-      beginRouteBudget(30000);
+      beginRouteBudget(60000);
       const markerPoints = spreadDuplicateCoords(day.stops);
 
       markerPoints.forEach((stop, idx) => {
@@ -1564,34 +1840,55 @@
         `);
       });
 
+      const fitPoints = [];
+      let summary;
+
       if (day.id === 7) {
         const cts = [42.7752, 141.6923];
         const itm = [34.7855, 135.4382];
+        const [toAirport, fromAirport] = await Promise.all([
+          fetchRouteForStops(day.stops.slice(0, 3), day),
+          fetchRouteForStops(day.stops.slice(3), day)
+        ]);
+        if (renderToken !== dayRenderToken) return;
+
         L.polyline([cts, [38.8, 137.8], itm], {
           color: '#ec4899', weight: 3, dashArray: '6, 10', opacity: 0.85
         }).addTo(currentLayerGroup);
-
-        const roadPath = await fetchRouteForStops(day.stops.slice(3));
-        L.polyline(roadPath, { color: day.color, weight: 5, opacity: 0.85 }).addTo(currentLayerGroup);
-        map.fitBounds(L.polyline([cts, ...roadPath]).getBounds(), { padding: [40, 40] });
+        drawRouteSegments([...toAirport.segments, ...fromAirport.segments], day.color);
+        fitPoints.push(cts, [38.8, 137.8], itm);
+        [...toAirport.segments, ...fromAirport.segments].forEach(segment => fitPoints.push(...segment.path));
+        summary = {
+          transitLegs: toAirport.transitLegs + fromAirport.transitLegs,
+          coachLegs: 0,
+          modes: [...new Set([...toAirport.modes, ...fromAirport.modes])]
+        };
       } else {
-        const roadPath = await fetchRouteForStops(day.stops);
-        const polyline = L.polyline(roadPath, {
-          color: day.color, weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round'
-        }).addTo(currentLayerGroup);
-        map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+        summary = await fetchRouteForStops(day.stops, day);
+        if (renderToken !== dayRenderToken) return;
+        drawRouteSegments(summary.segments, day.color);
+        summary.segments.forEach(segment => fitPoints.push(...segment.path));
+      }
+
+      if (fitPoints.length > 1) {
+        lastDayBounds = L.latLngBounds(fitPoints);
+        map.fitBounds(lastDayBounds, { padding: [40, 40] });
       }
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
       document.getElementById('mapLegendTitle').innerText = `Day ${day.id}: ${day.title[currentLang]}`;
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? `${day.stops.length} stops • walking & driving routes` : `${day.stops.length} 个行程点 • 实际步行与行车路线`;
+      document.getElementById('mapLegendSubtitle').innerText = `${day.stops.length} ${currentLang === 'en' ? 'stops' : '个行程点'} • ${routeModeLabel(summary, day)}`;
     }
 
-    async function renderAllRoutesOnMap() {
+    function renderAllRoutesOnMap() {
+      ++dayRenderToken;
       currentLayerGroup.clearLayers();
-      beginRouteBudget(30000);
+      lastDayBounds = null;
+      updateDayCarouselVisibility();
+      const mobileStatus = document.getElementById('mobile-status-label');
+      if (mobileStatus) mobileStatus.innerText = currentLang === 'en' ? 'Days 1 - 10' : '第 1 - 10 天';
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
-      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? 'Loading Overview Routes...' : '加载全景路线中...';
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? 'Loading Overview...' : '加载全景路线中...';
 
       const allPoints = [];
 
@@ -1614,16 +1911,19 @@
         }
 
         const overviewStops = day.id === 7 ? day.stops.slice(3) : day.stops;
-        const overviewCoords = overviewStops.map(s => [s.lng, s.lat]);
-        const roadPath = await fetchOSRMRoute(overviewCoords, 'driving');
-        L.polyline(roadPath, { color: day.color, weight: 3, opacity: 0.7 }).addTo(currentLayerGroup);
+        L.polyline(overviewStops.map(stop => [stop.lat, stop.lng]), {
+          color: day.color,
+          weight: 2,
+          opacity: 0.55,
+          dashArray: '3, 7'
+        }).addTo(currentLayerGroup);
       }
 
       if (allPoints.length > 0) map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
-      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Route Overview' : '10天全景行程路线';
-      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Hokkaido & Kansai • main-road overview; select a day for walking routes' : '北海道与关西全景 • 主路线概览；选择日期查看步行路线';
+      document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? '10-Day Transit Overview' : '10天公共交通全景';
+      document.getElementById('mapLegendSubtitle').innerText = currentLang === 'en' ? 'Schematic day flow • select a day for exact walking, JR and train routes' : '每日路线示意 • 选择日期查看步行、JR 与铁路实际路线';
     }
 
     function toggleMobileMap() {
@@ -1635,6 +1935,11 @@
         mapWrapper.classList.remove('hidden');
         sidebar.classList.add('hidden');
         map.invalidateSize();
+        setTimeout(() => {
+          map.invalidateSize();
+          if (lastDayBounds) map.fitBounds(lastDayBounds, { padding: [40, 40] });
+          if (selectedDayId !== null) syncDayCarousel(selectedDayId, false);
+        }, 80);
       } else {
         mapWrapper.classList.add('hidden');
         sidebar.classList.remove('hidden');
@@ -1706,6 +2011,7 @@
 
     window.addEventListener('resize', () => {
       if (map) map.invalidateSize();
+      if (selectedDayId !== null) syncDayCarousel(selectedDayId, false);
     });
 
     window.onload = function() {
@@ -1713,6 +2019,7 @@
       if (currentLang !== 'en') setLanguage(currentLang);
       todayState = computeTodayState();
       renderItinerary();
+      buildDayCarousel();
       if (todayState.dayId) {
         selectDay(todayState.dayId, { scroll: false });
       } else {
