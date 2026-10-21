@@ -1132,12 +1132,13 @@
     // Short hops are walked; anything longer uses public transport (JR/train).
     const WALK_MAX_KM = 2.5;
     const ROUTE_SERVERS = {
-      walking: ['https://routing.openstreetmap.de/routed-foot/route/v1/walking/']
+      walking: ['https://routing.openstreetmap.de/routed-foot/route/v1/walking/'],
+      driving: ['https://router.project-osrm.org/route/v1/driving/']
     };
     const VALHALLA_ROUTE_URL = 'https://valhalla1.openstreetmap.de/route';
     const TRANSIT_API_URL = 'https://api.transit.ls8h.com/api/v1/guidance/plan';
-    // Klook coach-tour days: hops are by tour bus, so no public-transport
-    // lookup applies — draw direct connectors instead of hitting the API.
+    // Klook coach-tour days: hops are by tour bus/car, so they use the
+    // OSRM driving profile instead of the public-transport planner.
     const TOUR_DAYS = new Set([4, 5]);
 
     // Public routing services rate-limit bursts and sometimes hang. Walking and
@@ -1197,7 +1198,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             locations: coordinates.map(c => ({ lon: c[0], lat: c[1] })),
-            costing: 'pedestrian'
+            costing: mode === 'walking' ? 'pedestrian' : 'auto'
           }),
           signal: controller.signal
         });
@@ -1382,10 +1383,7 @@
     function segmentMode(a, b, day) {
       const distance = parseFloat(calculateHaversineDistance(a.lat, a.lng, b.lat, b.lng));
       if (distance <= WALK_MAX_KM) return 'walking';
-      // Tour days (4, 5) travel by tour bus/car; Day 7's hops are a mix of
-      // airport bus and short train rides whose exact paths clutter the map —
-      // draw direct connectors for all long hops instead of hitting the API.
-      if (TOUR_DAYS.has(day?.id) || day?.id === 7) return 'tour';
+      if (TOUR_DAYS.has(day?.id)) return 'tour';
       return 'transit';
     }
 
@@ -1420,7 +1418,8 @@
           return { mode: 'transit', path: directRoute(group.coords), transitLegs: 0, fallback: true, modes: [] };
         }
         if (group.mode === 'tour') {
-          return { mode: 'tour', path: directRoute(group.coords), transitLegs: 0, modes: [] };
+          const path = await withRouteSlot(() => fetchOSRMRoute(group.coords, 'driving'));
+          return { mode: 'tour', path, transitLegs: 0, modes: [] };
         }
         const path = await withRouteSlot(() => fetchOSRMRoute(group.coords, group.mode));
         return { mode: group.mode, path, transitLegs: 0, modes: [] };
@@ -1683,12 +1682,11 @@
       segments.forEach(segment => {
         const style = {
           color,
-          weight: segment.mode === 'tour' ? 4 : 5,
+          weight: 5,
           opacity: segment.mode === 'walking' ? 0.82 : 0.92,
           lineCap: 'round',
           lineJoin: 'round'
         };
-        if (segment.mode === 'tour') style.dashArray = '9, 7';
         if (segment.fallback) {
           style.dashArray = '4, 8';
           style.opacity = 0.55;
