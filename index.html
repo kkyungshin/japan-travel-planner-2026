@@ -1684,6 +1684,7 @@
     let carouselEventsBound = false;
     let dayRenderToken = 0;
     let lastDayBounds = null;
+    let overviewBounds = null;
 
     function buildDayCarousel() {
       const track = document.getElementById('dayCarouselTrack');
@@ -1923,7 +1924,10 @@
         }).addTo(currentLayerGroup);
       }
 
-      if (allPoints.length > 0) map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
+      if (allPoints.length > 0) {
+        overviewBounds = L.latLngBounds(allPoints);
+        map.fitBounds(overviewBounds, { padding: [30, 30] });
+      }
       setTimeout(() => map.invalidateSize(), 100);
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
@@ -1942,7 +1946,8 @@
         map.invalidateSize();
         setTimeout(() => {
           map.invalidateSize();
-          if (lastDayBounds) map.fitBounds(lastDayBounds, { padding: [40, 40] });
+          const bounds = lastDayBounds || overviewBounds;
+          if (bounds) map.fitBounds(bounds, { padding: [40, 40] });
           if (selectedDayId !== null) syncDayCarousel(selectedDayId, false);
         }, 200);
       } else {
