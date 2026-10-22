@@ -651,8 +651,12 @@
     const routeCache = {};
     const ROUTE_CACHE_KEY = 'plannerRouteCache_v3';
     const transitCache = {};
-    const TRANSIT_CACHE_KEY = 'plannerTransitCache_v1';
+    // v2: the old cache holds itineraries picked with the broken
+    // endpoint-detour ranking (Kobe -> Namba via Kyoto).
+    const TRANSIT_CACHE_KEY = 'plannerTransitCache_v2';
+    const LEGACY_TRANSIT_CACHE_KEYS = ['plannerTransitCache_v1'];
     try {
+      LEGACY_TRANSIT_CACHE_KEYS.forEach(key => localStorage.removeItem(key));
       const savedRoutes = JSON.parse(localStorage.getItem(ROUTE_CACHE_KEY) || '{}');
       if (savedRoutes && typeof savedRoutes === 'object') Object.assign(routeCache, savedRoutes);
       const savedTransit = JSON.parse(localStorage.getItem(TRANSIT_CACHE_KEY) || '{}');
@@ -1357,6 +1361,29 @@
       return compact;
     }
 
+    function polylineLengthKm(points) {
+      let total = 0;
+      for (let i = 1; i < points.length; i++) {
+        total += parseFloat(calculateHaversineDistance(
+          points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]
+        ));
+      }
+      return total;
+    }
+
+    // A transit itinerary far longer than the straight-line hop is not a
+    // real route. The planner's Japan dataset sometimes links two cities
+    // through a completely unrelated rail corridor - Kobe -> Namba comes back
+    // as 180 km via Kyoto and Nara for a 28 km hop. Anything past this
+    // multiple of the direct distance is treated as a broken itinerary and
+    // replaced with the road corridor.
+    function transitDetourLimit(straightKm) {
+      // Metro and loop lines genuinely double back on short hops - Namba to
+      // Umeda is 4.6 km as the crow flies but 12 km of Midosuji Line - so
+      // only apply the tight limit to long hops where a detour is implausible.
+      return straightKm >= 15 ? 2 : 3;
+    }
+
     async function fetchTransitRoute(fromStop, toStop, day) {
       const date = serviceDateForDay(day);
       const time = parseStopTime(fromStop.time);
@@ -1380,9 +1407,7 @@
         if (!response.ok) return null;
         const data = await response.json();
 
-        // Build every candidate path, then keep the one whose polyline stays
-        // most direct to the destination — the planner sometimes returns a
-        // detouring itinerary first, which drags the drawn line far off-route.
+        // Build every candidate path, then keep the shortest one.
         const candidates = [];
         for (const option of data.options || []) {
           const path = [];
@@ -1404,22 +1429,49 @@
             transitLegs: transitLegs.length,
             modes: [...new Set(transitLegs.map(leg => leg.mode).filter(Boolean))],
             routes: [...new Set(transitLegs.map(leg => leg.routeName).filter(Boolean))].slice(0, 3),
-            _score: detour,
+            _length: polylineLengthKm(path),
+            _detour: detour,
             _duration: duration
           });
         }
-        candidates.sort((a, b) => a._score - b._score);
-        const best = candidates[0];
+
+        // Rank by how long the path really is. The previous score measured
+        // the gap between the polyline's last point and the destination - every
+        // candidate ends AT the destination, so that score was always ~0 and
+        // the sort did nothing. The planner's first option then won, which
+        // for Kobe -> Namba is the itinerary that runs north through Kyoto.
+        //
+        // The "walk only" pseudo-option is a bare straight line with no
+        // transit legs; on length alone it would always win, so drop it
+        // whenever a real transit itinerary exists.
+        const withTransit = candidates.filter(candidate => candidate.transitLegs > 0);
+        const pool = withTransit.length ? withTransit : candidates;
+        pool.sort((a, b) =>
+          (a._length - b._length) || (a._detour - b._detour) || (a._duration - b._duration));
+        const best = pool[0];
         if (!best) {
           transitCache[cacheKey] = null;
           persistRouteCache();
           return null;
         }
+
+        // Even the shortest candidate can still be nonsense - flag it so the
+        // caller can swap in the road corridor instead of drawing a detour.
+        // Short hops and flight legs are left alone: a metro loop is allowed
+        // to wander, and a road route makes no sense across the sea.
+        const directKm = parseFloat(calculateHaversineDistance(
+          fromStop.lat, fromStop.lng, toStop.lat, toStop.lng
+        ));
+        const detourRatio = directKm > 1 ? best._length / directKm : 1;
+        const detoured = best.transitLegs > 0 && directKm >= 8 && directKm <= 200
+          && detourRatio > transitDetourLimit(directKm);
+
         const result = {
           path: best.path,
           transitLegs: best.transitLegs,
           modes: best.modes,
-          routes: best.routes
+          routes: best.routes,
+          detoured
         };
         transitCache[cacheKey] = result;
         persistRouteCache();
@@ -1538,6 +1590,14 @@
         if (group.mode === 'transit') {
           const transit = await withRouteSlot(() => fetchTransitRoute(group.stops[0], group.stops[1], day));
           if (transit) {
+            if (transit.detoured) {
+              // The planner linked the two stops through the wrong rail
+              // corridor (Kobe -> Namba via Kyoto). Draw the road corridor
+              // instead: the expressway runs beside the railway, so the line
+              // stays geographically honest instead of detouring north.
+              const path = await fetchOSRMRoute(group.coords, 'driving');
+              return { mode: 'transit', path, transitLegs: transit.transitLegs, modes: transit.modes, fallback: true };
+            }
             return { mode: 'transit', path: transit.path, transitLegs: transit.transitLegs, modes: transit.modes };
           }
           return { mode: 'transit', path: directRoute(group.coords), transitLegs: 0, fallback: true, modes: [] };
