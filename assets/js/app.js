@@ -220,6 +220,9 @@
           localStorage.setItem('wxCache', JSON.stringify({ at: Date.now(), data: weatherByDay }));
         } catch (e) {}
         applyWeatherUI();
+        // The per-day model data feeds the weather panel for dates beyond
+        // JMA's 7-day window, so refresh the panel now that it has landed.
+        if (weatherSelectedCode) selectWeatherFor(null, null, weatherSelectedCode, weatherSelectedDay);
       } catch (e) {
         console.warn('Weather fetch failed:', e);
       }
@@ -630,7 +633,7 @@
       document.getElementById('tab-kansai').innerText = lang === 'en' ? 'Kansai (D7-D10)' : '关西 (D7-D10)';
 
       applyKitText();
-      if (weatherSelectedCode) selectWeatherFor(null, null, weatherSelectedCode);
+      if (weatherSelectedCode) selectWeatherFor(null, null, weatherSelectedCode, weatherSelectedDay);
       syncSettingsUI();
 
       updateMobileMapButtonText();
@@ -978,7 +981,7 @@
 
       // Pull the live JMA weather for wherever this day is mostly spent.
       const dayArea = dominantAreaForDay(day);
-      if (dayArea) selectWeatherFor(null, null, dayArea);
+      if (dayArea) selectWeatherFor(null, null, dayArea, day.id);
 
       document.getElementById('routeStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
       document.getElementById('mapLegendTitle').innerText = currentLang === 'en' ? `Finding Day ${day.id} routes...` : `正在查找第 ${day.id} 天路线...`;
@@ -1011,7 +1014,7 @@
           </div>
         `);
         // Clicking a stop pulls the live JMA weather for that place.
-        marker.on('click', () => selectWeatherFor(stop.lat, stop.lng));
+        marker.on('click', () => selectWeatherFor(stop.lat, stop.lng, null, day.id));
       });
 
       const schematicCoords = (day.id === 7 ? day.stops.slice(3) : day.stops)
@@ -1112,7 +1115,7 @@
               <div class="text-[10px] font-bold text-slate-400">Day ${day.id}</div>
               <div class="font-bold text-xs text-slate-100">${stop.name[currentLang]}</div>
             </div>
-          `).on('click', () => selectWeatherFor(stop.lat, stop.lng));
+          `).on('click', () => selectWeatherFor(stop.lat, stop.lng, null, day.id));
         });
 
         if (day.id === 7) {
@@ -1141,7 +1144,7 @@
       // Overview mode still gets live weather - show it for where the trip starts.
       const firstDay = daysData[0];
       const startArea = firstDay ? dominantAreaForDay(firstDay) : null;
-      if (startArea) selectWeatherFor(null, null, startArea);
+      if (startArea) selectWeatherFor(null, null, startArea, firstDay ? firstDay.id : null);
     }
 
     function toggleMobileMap() {

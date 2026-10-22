@@ -58,13 +58,40 @@
       '48': 'Storm surge danger warning', '49': 'Landslide danger warning'
     };
 
+    // Official JMA "telop" weather codes (気象庁 天気予報コード表). Used for
+    // the 7-day outlook, which only publishes codes and no prose.
     const JMA_CODE_LABELS = {
-      '100': 'Clear', '101': 'Fair', '102': 'Fair, cloudy at times',
-      '103': 'Fair, cloudy, rain at times', '104': 'Fair, cloudy, snow at times',
-      '105': 'Cloudy, clear at times', '106': 'Cloudy, clear, rain at times',
-      '107': 'Cloudy, clear, snow at times', '110': 'Cloudy', '111': 'Rain',
-      '112': 'Rain, snow at times', '113': 'Snow', '114': 'Rain or snow',
-      '115': 'Snow, uncertain', '120': 'Rain or snow', '121': 'Rain or snow, uncertain'
+      '100': 'Clear', '101': 'Fair, cloudy at times', '102': 'Fair, rain at times',
+      '103': 'Fair, occasional rain', '104': 'Fair, snow at times',
+      '105': 'Fair, occasional snow', '106': 'Fair, rain or snow at times',
+      '107': 'Fair, occasional rain or snow', '110': 'Clear, then cloudy at times',
+      '111': 'Clear, then cloudy', '112': 'Clear, then rain at times',
+      '113': 'Clear, then occasional rain', '114': 'Clear, then rain',
+      '115': 'Clear, then snow at times', '116': 'Clear, then occasional snow',
+      '117': 'Clear, then snow', '118': 'Clear, then rain or snow',
+      '120': 'Clear, rain at times around dawn and dusk',
+      '160': 'Fair, snow or rain at times', '170': 'Fair, occasional snow or rain',
+      '181': 'Clear, then snow or rain',
+      '200': 'Cloudy', '201': 'Cloudy, clear at times', '202': 'Cloudy, rain at times',
+      '203': 'Cloudy, occasional rain', '204': 'Cloudy, snow at times',
+      '205': 'Cloudy, occasional snow', '206': 'Cloudy, rain or snow at times',
+      '207': 'Cloudy, occasional rain or snow', '210': 'Cloudy, then clear at times',
+      '211': 'Cloudy, then clear', '212': 'Cloudy, then rain at times',
+      '213': 'Cloudy, then occasional rain', '214': 'Cloudy, then rain',
+      '215': 'Cloudy, then snow at times', '216': 'Cloudy, then occasional snow',
+      '217': 'Cloudy, then snow', '218': 'Cloudy, then rain or snow',
+      '260': 'Cloudy, snow or rain at times', '270': 'Cloudy, occasional snow or rain',
+      '281': 'Cloudy, then snow or rain',
+      '300': 'Rain', '301': 'Rain, clear at times', '302': 'Rain, sometimes easing',
+      '303': 'Rain, occasional snow', '304': 'Rain or snow', '306': 'Heavy rain',
+      '308': 'Rain with strong wind', '309': 'Rain, snow at times',
+      '311': 'Rain then clear', '313': 'Rain then cloudy', '314': 'Rain then occasional snow',
+      '315': 'Rain then snow', '316': 'Rain or snow then clear', '317': 'Rain or snow then cloudy',
+      '340': 'Snow or rain', '361': 'Snow or rain then clear', '371': 'Snow or rain then cloudy',
+      '400': 'Snow', '401': 'Snow, clear at times', '402': 'Snow, sometimes easing',
+      '403': 'Snow, occasional rain', '405': 'Heavy snow', '406': 'Blizzard',
+      '407': 'Blizzard', '409': 'Snow, rain at times', '411': 'Snow then clear',
+      '413': 'Snow then cloudy', '414': 'Snow then rain', '450': 'Snow with thunder'
     };
 
     // Japanese forecast wording -> English. Longest phrase wins.
@@ -174,13 +201,80 @@ function translateJmaWeather(jaText) {
       '停滞': 'stationary', 'ほぼ停滞': 'nearly stationary'
     };
 
+    // The 7-day outlook publishes one entry per day for the coming week -
+    // weather code, rain chance and min/max temperatures.
+    function parseJmaWeek(forecast) {
+      const week = forecast && forecast[1];
+      if (!week || !week.timeSeries || !week.timeSeries.length) return [];
+      const codesTs = week.timeSeries[0];
+      const tempsTs = week.timeSeries[1];
+      const codeArea = (codesTs.areas || [])[0] || {};
+      const tempArea = (tempsTs && (tempsTs.areas || [])[0]) || {};
+
+      const tempsByDate = new Map();
+      (tempsTs && tempsTs.timeDefines || []).forEach((iso, i) => {
+        tempsByDate.set(iso.slice(0, 10), {
+          min: (tempArea.tempsMin || [])[i],
+          max: (tempArea.tempsMax || [])[i]
+        });
+      });
+
+      // JMA leaves the first day of the weekly outlook blank for
+      // temperatures - those come from the city's own daily series instead
+      // (today min/max then tomorrow min/max).
+      const cityTs = forecast[0] && forecast[0].timeSeries && forecast[0].timeSeries[2];
+      const cityArea = cityTs && (cityTs.areas || [])[0];
+      if (cityTs && cityArea && cityArea.temps) {
+        const defines = cityTs.timeDefines || [];
+        const t = cityArea.temps;
+        if (defines[0] && t[0] !== '' && t[1] !== '') {
+          tempsByDate.set(defines[0].slice(0, 10), { min: t[0], max: t[1] });
+        }
+        if (defines[2] && t[2] !== '' && t[3] !== '') {
+          tempsByDate.set(defines[2].slice(0, 10), { min: t[2], max: t[3] });
+        }
+      }
+
+      return (codesTs.timeDefines || []).map((iso, i) => {
+        const date = iso.slice(0, 10);
+        const t = tempsByDate.get(date) || {};
+        return {
+          date,
+          label: JMA_CODE_LABELS[(codeArea.weatherCodes || [])[i]] || '',
+          pop: (codeArea.pops || [])[i],
+          min: t.min,
+          max: t.max
+        };
+      });
+    }
+
+    function tripDateForDayId(id) {
+      const d = new Date(Date.UTC(2026, 9, 23 + (id - 1)));
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+    }
+
+    // Date-only formatting - the trip dates are JST calendar days, so they
+    // must not be shifted by the viewer's own timezone.
+    function tripDateLabel(dateISO) {
+      const parts = String(dateISO).split('-').map(Number);
+      if (parts.length !== 3 || parts.some(n => Number.isNaN(n))) return dateISO;
+      const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
+    }
+
     async function loadJmaWeather(area) {
       const [forecast, warnings] = await Promise.all([
         fetchJsonTimeout(`${JMA_FORECAST_BASE}${area.office}.json`),
         fetchJsonTimeout(`${JMA_WARNING_BASE}${area.office}.json`)
       ]);
 
-      const parsed = { area, headline: '', detail: '', issued: '', temps: null, warnings: [], warningsFailed: false };
+      const parsed = {
+        area, headline: '', detail: '', issued: '', temps: null,
+        warnings: [], warningsFailed: false, week: []
+      };
 
       if (forecast && forecast.length) {
         const block = forecast[0];
@@ -192,8 +286,6 @@ function translateJmaWeather(jaText) {
           const code = (hit.weatherCodes || [])[0];
           const jp = (hit.weathers || [])[0];
           parsed.detail = translateJmaWeather(jp);
-          // 1xx codes have a clean English label; 2xx/3xx are combinations
-          // where only the Japanese text carries the detail.
           parsed.headline = JMA_CODE_LABELS[code] || '';
           if (!parsed.headline) { parsed.headline = parsed.detail; parsed.detail = ''; }
         }
@@ -201,6 +293,7 @@ function translateJmaWeather(jaText) {
         if (avg && avg.length) {
           parsed.temps = { min: avg[0].min, max: avg[0].max };
         }
+        parsed.week = parseJmaWeek(forecast);
       }
 
       if (warnings) {
@@ -250,14 +343,16 @@ function translateJmaWeather(jaText) {
     }
 
     let weatherSelectedCode = null;
+    let weatherSelectedDay = null;
     let weatherRequestToken = 0;
 
-    async function selectWeatherFor(lat, lng, explicitCode) {
+    async function selectWeatherFor(lat, lng, explicitCode, dayId) {
       const area = explicitCode
         ? JMA_AREAS.find(a => a.code === explicitCode)
         : findJmaArea(lat, lng);
       if (!area) return;
       weatherSelectedCode = area.code;
+      weatherSelectedDay = dayId != null ? dayId : weatherSelectedDay;
       const picker = document.getElementById('wxPicker');
       if (picker) picker.value = area.code;
 
@@ -279,14 +374,45 @@ function translateJmaWeather(jaText) {
       if (token !== weatherRequestToken) return;
 
       const parts = [];
-      if (weather.headline) parts.push(`<span class="font-semibold text-slate-100">${weather.headline}</span>`);
-      if (weather.detail && weather.detail !== weather.headline) {
-        parts.push(`<span class="text-slate-300">${weather.detail}</span>`);
+      // The forecast for the day being viewed comes first - that is the date
+      // the traveller actually cares about.
+      const targetDate = dayId != null ? tripDateForDayId(dayId) : null;
+      const jmaDay = targetDate ? weather.week.find(w => w.date === targetDate) : null;
+      const openMeteoDay = dayId != null ? weatherByDay[dayId] : null;
+
+      if (jmaDay) {
+        parts.push(`<div class="flex items-baseline gap-1.5">
+          <span class="font-mono text-[10px] text-slate-400">${tripDateLabel(targetDate)}</span>
+          <span class="font-semibold text-slate-100">${jmaDay.label}</span>
+        </div>`);
+        const bits = [];
+        if (jmaDay.min != null && jmaDay.max != null) bits.push(`<span class="font-mono text-sky-300">${jmaDay.min}° / ${jmaDay.max}°C</span>`);
+        if (jmaDay.pop != null && jmaDay.pop !== '') bits.push(`<span class="font-mono text-blue-300">${jmaDay.pop}% rain</span>`);
+        if (bits.length) parts.push(`<div>${bits.join(' · ')}</div>`);
+      } else if (openMeteoDay) {
+        // Beyond JMA's 7-day window - fall back to the model's day forecast.
+        const meta = WMO_CODES[openMeteoDay.code] || WMO_CODES[3];
+        parts.push(`<div class="flex items-baseline gap-1.5">
+          <span class="font-mono text-[10px] text-slate-400">${tripDateLabel(targetDate)}</span>
+          <span class="font-semibold text-slate-100">${meta[0]}</span>
+        </div>`);
+        const bits = [`<span class="font-mono text-sky-300">${Math.round(openMeteoDay.tmin)}° / ${Math.round(openMeteoDay.tmax)}°C</span>`];
+        if (openMeteoDay.pop != null) bits.push(`<span class="font-mono text-blue-300">${Math.round(openMeteoDay.pop)}% rain</span>`);
+        parts.push(`<div>${bits.join(' · ')}</div>`);
+      }
+
+      // Current conditions - the trip is imminent, so the live readout and
+      // any active warning matter more than a long-range outlook.
+      if (weather.headline) {
+        parts.push(`<div class="flex items-baseline gap-1.5 pt-0.5">
+          <span class="font-mono text-[10px] text-slate-400">${locMsg('Today', '今天')}</span>
+          <span class="text-slate-300">${weather.detail && weather.detail !== weather.headline ? weather.headline + ' · ' + weather.detail : weather.headline}</span>
+        </div>`);
       }
       if (weather.temps) {
-        parts.push(`<span class="font-mono text-sky-300">${weather.temps.min}° / ${weather.temps.max}°C</span>`);
+        parts.push(`<div class="font-mono text-[10px] text-slate-500">${locMsg('Week avg', '本周均温')} ${weather.temps.min}° / ${weather.temps.max}°C</div>`);
       }
-      if (bodyEl) bodyEl.innerHTML = parts.join(' · ') || locMsg('No forecast available.', '暂无预报。');
+      if (bodyEl) bodyEl.innerHTML = parts.join('') || locMsg('No forecast available.', '暂无预报。');
 
       const alerts = [];
       if (weather.warnings.length) {
@@ -351,7 +477,22 @@ function translateJmaWeather(jaText) {
         option.innerText = area.en;
         picker.appendChild(option);
       });
-      picker.onchange = () => selectWeatherFor(null, null, picker.value);
+      // Picking a place should take you there - jump the map and the
+      // itinerary to the day that spends the most time in that area.
+      picker.onchange = () => {
+        const code = picker.value;
+        const day = dayForAreaCode(code);
+        if (day) selectDay(day.id);
+        else selectWeatherFor(null, null, code, weatherSelectedDay);
+      };
+    }
+
+    // The day that a given JMA area belongs to.
+    function dayForAreaCode(code) {
+      for (const day of daysData) {
+        if (dominantAreaForDay(day) === code) return day;
+      }
+      return null;
     }
 
     function dominantAreaForDay(day) {
