@@ -618,9 +618,10 @@
       } catch (e) {}
       const body = document.getElementById('kitBody');
       const chev = document.getElementById('kitChevron');
-      // Default open - the live JMA weather panel lives in here.
-      body.classList.remove('hidden');
-      chev.classList.add('rotate-180');
+      // Closed by default - the expanded panel is tall and squeezes the
+      // itinerary scroll area on small screens.
+      body.classList.add('hidden');
+      chev.classList.remove('rotate-180');
       applyKitText();
     }
 

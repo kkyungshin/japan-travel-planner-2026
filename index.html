@@ -119,15 +119,16 @@
       </div>
 
       <!-- Weather Notes + live JMA feed (collapsed accordion) -->
-      <div id="kitBanner" class="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300">
+      <div id="kitBanner" class="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-300 flex-shrink-0">
         <button onclick="toggleKit()" class="w-full flex items-center justify-between gap-2 text-left">
-          <span class="flex items-center gap-1.5 font-semibold text-amber-300">
+          <span class="flex items-center gap-1.5 font-semibold text-amber-300 flex-shrink-0">
             <i class="fa-solid fa-snowflake text-amber-400"></i>
             <span id="kitTitle">Weather notes</span>
           </span>
-          <i id="kitChevron" class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform"></i>
+          <span id="kitSummary" class="flex-1 min-w-0 truncate text-right text-[11px] font-normal text-slate-400"></span>
+          <i id="kitChevron" class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform flex-shrink-0"></i>
         </button>
-        <div id="kitBody" class="hidden mt-2 space-y-1.5 text-[11px] leading-relaxed">
+        <div id="kitBody" class="hidden mt-2 space-y-1.5 text-[11px] leading-relaxed max-h-[40vh] overflow-y-auto custom-scrollbar overscroll-contain">
           <div id="wxPanel" class="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5 space-y-1.5">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 min-w-0">

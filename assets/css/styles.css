@@ -130,7 +130,9 @@
     html[data-theme="light"] .border-orange-500\/60 { border-color: rgba(249, 115, 22, 0.5) !important; }
     html[data-theme="light"] .border-amber-500\/40 { border-color: rgba(245, 158, 11, 0.45) !important; }
     html[data-theme="light"] .text-red-200 { color: #991b1b !important; }
+    html[data-theme="light"] .text-red-300 { color: #b91c1c !important; }
     html[data-theme="light"] .text-orange-200 { color: #9a3412 !important; }
+    html[data-theme="light"] .text-orange-300 { color: #c2410c !important; }
     html[data-theme="light"] .text-amber-200 { color: #92400e !important; }
     html[data-theme="light"] .bg-slate-700 { background-color: #e2e8f0 !important; }
     html[data-theme="light"] .hover\:bg-slate-700:hover:not(.tab-btn):not(.day-chip):not(.map-day-chip) { background-color: #e2e8f0 !important; }

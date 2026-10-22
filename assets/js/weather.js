@@ -379,6 +379,12 @@ function translateJmaWeather(jaText) {
       const placeEl = document.getElementById('wxPlace');
       if (placeEl) placeEl.innerText = area.en;
 
+      const summaryEl = document.getElementById('kitSummary');
+      if (summaryEl) {
+        summaryEl.innerText = area.en;
+        summaryEl.className = 'flex-1 min-w-0 truncate text-right text-[11px] font-normal text-slate-400';
+      }
+
       const token = ++weatherRequestToken;
       const bodyEl = document.getElementById('wxBody');
       const alertEl = document.getElementById('wxAlerts');
@@ -472,6 +478,21 @@ function translateJmaWeather(jaText) {
         </div>`);
       }
       if (alertEl) alertEl.innerHTML = alerts.join('');
+
+      // The collapsed header carries a one-line summary so the panel still
+      // tells you the temperature and whether an alert is active.
+      if (summaryEl) {
+        let range = '';
+        if (jmaDay && jmaDay.min != null && jmaDay.max != null) range = `${jmaDay.min}°/${jmaDay.max}°C`;
+        else if (openMeteoDay) range = `${Math.round(openMeteoDay.tmin)}°/${Math.round(openMeteoDay.tmax)}°C`;
+        const nearTyphoon = typhoon && typhoon.distanceKm !== undefined && typhoon.distanceKm < 1500;
+        let marker = '';
+        let tone = 'text-slate-400';
+        if (weather.warnings.length) { marker = ' ⚠'; tone = 'text-red-300'; }
+        else if (nearTyphoon) { marker = ' 🌀'; tone = 'text-orange-300'; }
+        summaryEl.innerText = range ? `${area.en} ${range}${marker}` : area.en;
+        summaryEl.className = `flex-1 min-w-0 truncate text-right text-[11px] font-normal ${tone}`;
+      }
 
       const iconEl = document.getElementById('wxIcon');
       if (iconEl) {
