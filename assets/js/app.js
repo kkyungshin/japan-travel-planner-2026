@@ -173,7 +173,7 @@
 
     async function loadWeather() {
       try {
-        const cached = JSON.parse(localStorage.getItem('wxCache') || 'null');
+        const cached = JSON.parse(localStorage.getItem('wxCache_v2') || 'null');
         if (cached && Date.now() - cached.at < WEATHER_TTL_MS) {
           weatherByDay = cached.data || {};
           applyWeatherUI();
@@ -190,7 +190,8 @@
         const lngs = anchors.map(s => s.lng).join(',');
         const url = 'https://api.open-meteo.com/v1/forecast' +
           `?latitude=${lats}&longitude=${lngs}` +
-          '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+          '&daily=weather_code,temperature_2m_max,temperature_2m_min,' +
+          'apparent_temperature_max,apparent_temperature_min,precipitation_probability_max' +
           '&timezone=Asia%2FTokyo&start_date=2026-10-23&end_date=2026-11-01';
         const res = await fetch(url);
         if (!res.ok) return;
@@ -210,6 +211,8 @@
             code: series.daily.weather_code[idx],
             tmax,
             tmin,
+            tmaxApp: series.daily.apparent_temperature_max ? series.daily.apparent_temperature_max[idx] : null,
+            tminApp: series.daily.apparent_temperature_min ? series.daily.apparent_temperature_min[idx] : null,
             pop: series.daily.precipitation_probability_max[idx]
           };
         });
@@ -217,7 +220,7 @@
         if (Object.keys(next).length === 0) return;
         weatherByDay = next;
         try {
-          localStorage.setItem('wxCache', JSON.stringify({ at: Date.now(), data: weatherByDay }));
+          localStorage.setItem('wxCache_v2', JSON.stringify({ at: Date.now(), data: weatherByDay }));
         } catch (e) {}
         applyWeatherUI();
         // The per-day model data feeds the weather panel for dates beyond
@@ -240,7 +243,9 @@
         }
         const meta = WMO_CODES[w.code] || WMO_CODES[3];
         el.className = 'text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 font-mono flex items-center gap-1 flex-shrink-0';
-        el.title = `${meta[0]} · ${Math.round(w.tmin)}°C to ${Math.round(w.tmax)}°C` +
+        const feels = w.tminApp != null && w.tmaxApp != null
+          ? ` · feels ${Math.round(w.tminApp)}°C to ${Math.round(w.tmaxApp)}°C` : '';
+        el.title = `${meta[0]} · ${Math.round(w.tmin)}°C to ${Math.round(w.tmax)}°C${feels}` +
           (w.pop != null ? ` · ${Math.round(w.pop)}% precipitation` : '');
         el.innerHTML = `<i class="fa-solid ${meta[1]}" style="color:${meta[2]}"></i>` +
           `${Math.round(w.tmin)}°–${Math.round(w.tmax)}°` +

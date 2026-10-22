@@ -342,6 +342,26 @@ function translateJmaWeather(jaText) {
       return info;
     }
 
+    // JMA's public feed has no apparent-temperature field, so "feels like"
+    // and the live current reading come from the same Open-Meteo model the
+    // day cards already use. Cached for 20 minutes per place.
+    const apparentNowCache = new Map();
+
+    async function loadApparentNow(area) {
+      const cached = apparentNowCache.get(area.code);
+      if (cached && Date.now() - cached.at < 20 * 60 * 1000) return cached.value;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${area.lat}&longitude=${area.lng}` +
+        '&current=temperature_2m,apparent_temperature&timezone=Asia%2FTokyo';
+      const data = await fetchJsonTimeout(url, 8000);
+      if (!data || !data.current) return null;
+      const value = {
+        temp: data.current.temperature_2m,
+        apparent: data.current.apparent_temperature
+      };
+      apparentNowCache.set(area.code, { at: Date.now(), value });
+      return value;
+    }
+
     let weatherSelectedCode = null;
     let weatherSelectedDay = null;
     let weatherRequestToken = 0;
@@ -367,9 +387,10 @@ function translateJmaWeather(jaText) {
       if (alertEl) alertEl.innerHTML = '';
       if (sourceEl) sourceEl.innerText = '';
 
-      const [weather, typhoon] = await Promise.all([
+      const [weather, typhoon, now] = await Promise.all([
         loadJmaWeather(area),
-        loadJmaTyphoon(area)
+        loadJmaTyphoon(area),
+        loadApparentNow(area)
       ]);
       if (token !== weatherRequestToken) return;
 
@@ -380,6 +401,10 @@ function translateJmaWeather(jaText) {
       const jmaDay = targetDate ? weather.week.find(w => w.date === targetDate) : null;
       const openMeteoDay = dayId != null ? weatherByDay[dayId] : null;
 
+      // "feels like" is a model value - JMA does not publish one.
+      const feelsBit = (min, max) => (min == null || max == null ? '' :
+        `<span class="font-mono text-slate-400" title="${locMsg('Apparent temperature (model)', '体感温度（模式）')}">feels ${Math.round(min)}° / ${Math.round(max)}°C</span>`);
+
       if (jmaDay) {
         parts.push(`<div class="flex items-baseline gap-1.5">
           <span class="font-mono text-[10px] text-slate-400">${tripDateLabel(targetDate)}</span>
@@ -387,6 +412,7 @@ function translateJmaWeather(jaText) {
         </div>`);
         const bits = [];
         if (jmaDay.min != null && jmaDay.max != null) bits.push(`<span class="font-mono text-sky-300">${jmaDay.min}° / ${jmaDay.max}°C</span>`);
+        if (openMeteoDay) bits.push(feelsBit(openMeteoDay.tminApp, openMeteoDay.tmaxApp));
         if (jmaDay.pop != null && jmaDay.pop !== '') bits.push(`<span class="font-mono text-blue-300">${jmaDay.pop}% rain</span>`);
         if (bits.length) parts.push(`<div>${bits.join(' · ')}</div>`);
       } else if (openMeteoDay) {
@@ -397,6 +423,7 @@ function translateJmaWeather(jaText) {
           <span class="font-semibold text-slate-100">${meta[0]}</span>
         </div>`);
         const bits = [`<span class="font-mono text-sky-300">${Math.round(openMeteoDay.tmin)}° / ${Math.round(openMeteoDay.tmax)}°C</span>`];
+        bits.push(feelsBit(openMeteoDay.tminApp, openMeteoDay.tmaxApp));
         if (openMeteoDay.pop != null) bits.push(`<span class="font-mono text-blue-300">${Math.round(openMeteoDay.pop)}% rain</span>`);
         parts.push(`<div>${bits.join(' · ')}</div>`);
       }
@@ -409,7 +436,12 @@ function translateJmaWeather(jaText) {
           <span class="text-slate-300">${weather.detail && weather.detail !== weather.headline ? weather.headline + ' · ' + weather.detail : weather.headline}</span>
         </div>`);
       }
-      if (weather.temps) {
+      if (now) {
+        parts.push(`<div class="font-mono text-[10px] text-slate-500">
+          ${locMsg('Now', '当前')} <span class="text-sky-300">${Math.round(now.temp)}°C</span>
+          ${now.apparent != null ? ` · <span class="text-slate-400">feels ${Math.round(now.apparent)}°C</span>` : ''}
+        </div>`);
+      } else if (weather.temps) {
         parts.push(`<div class="font-mono text-[10px] text-slate-500">${locMsg('Week avg', '本周均温')} ${weather.temps.min}° / ${weather.temps.max}°C</div>`);
       }
       if (bodyEl) bodyEl.innerHTML = parts.join('') || locMsg('No forecast available.', '暂无预报。');
@@ -453,9 +485,11 @@ function translateJmaWeather(jaText) {
       }
       if (sourceEl) {
         const issued = weather.issued ? new Date(weather.issued).toLocaleString() : '';
-        sourceEl.innerText = locMsg(
-          `Japan Meteorological Agency · issued ${issued}`,
-          `日本气象厅 · 发布于 ${issued}`
+        sourceEl.innerHTML = locMsg(
+          `Forecast, alerts &amp; typhoon: <span class="text-slate-400">Japan Meteorological Agency</span> · issued ${issued}<br>` +
+          `<span class="text-slate-400">Feels-like &amp; current: Open-Meteo model</span>`,
+          `预报、警报与台风：<span class="text-slate-400">日本气象厅</span> · 发布于 ${issued}<br>` +
+          `<span class="text-slate-400">体感温度与实况：Open-Meteo 模式</span>`
         );
       }
     }
